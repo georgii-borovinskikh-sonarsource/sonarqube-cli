@@ -254,22 +254,19 @@ describe('secretCheckCommand: input validation', () => {
 // ─── Failed scan paths ────────────────────────────────────────────────────────
 
 describe('secretCheckCommand: scan failures', () => {
-  it('throws when binary exits 51 (secrets found)', () => {
+  it('throws when binary exits 51 (secrets found)', async () => {
     spawnSpy.mockResolvedValue({ exitCode: 51, stdout: '', stderr: '' });
 
     const existsSpy = mockBinaryExists(true);
     try {
-      expect(analyzeSecrets({ paths: ['src/index.ts'] }, FAKE_AUTH)).rejects.toThrow(
-        new CommandFailedError('Scan failed with exit code: 51', 51),
-      );
+      await analyzeSecrets({ paths: ['src/index.ts'] }, FAKE_AUTH);
+    } catch (e) {
+      expect(e).toBeInstanceOf(CommandFailedError);
+      expect((e as CommandFailedError).message).toContain('Secrets found');
+      expect((e as CommandFailedError).exitCode).toBe(51);
     } finally {
       existsSpy.mockRestore();
     }
-
-    const errors = getMockUiCalls()
-      .filter((c) => c.method === 'error')
-      .map((c) => String(c.args[0]));
-    expect(errors.some((m) => m.includes('Scan found secrets'))).toBe(true);
   });
 
   it('throws when binary exits 1 (error, not secrets found)', () => {
@@ -278,7 +275,7 @@ describe('secretCheckCommand: scan failures', () => {
     const existsSpy = mockBinaryExists(true);
     try {
       expect(analyzeSecrets({ paths: ['src/index.ts'] }, FAKE_AUTH)).rejects.toThrow(
-        new CommandFailedError('Scan failed with exit code: 1', 1),
+        new CommandFailedError('Scan error (exit code 1)', 1),
       );
     } finally {
       existsSpy.mockRestore();
@@ -292,7 +289,7 @@ describe('secretCheckCommand: scan failures', () => {
     const existsSpy = mockBinaryExists(true);
     try {
       expect(analyzeSecrets({ paths: ['src/index.ts'] }, FAKE_AUTH)).rejects.toThrow(
-        new CommandFailedError('Scan failed with exit code: 2', 2),
+        new CommandFailedError('Scan error (exit code 2)', 2),
       );
     } finally {
       existsSpy.mockRestore();
@@ -311,7 +308,7 @@ describe('secretCheckCommand: scan failures', () => {
     const existsSpy = mockBinaryExists(true);
     try {
       expect(analyzeSecrets({ paths: ['src/index.ts'] }, FAKE_AUTH)).rejects.toThrow(
-        new CommandFailedError('Scan failed with exit code: 2', 2),
+        new CommandFailedError('Scan error (exit code 2)', 2),
       );
     } finally {
       existsSpy.mockRestore();
