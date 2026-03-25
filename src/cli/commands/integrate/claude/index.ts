@@ -29,6 +29,7 @@ import { blank, info, intro, note, outro, success, text, warn } from '../../../.
 import type { DiscoveredProject } from '../../_common/discovery';
 import { discoverProject } from '../../_common/discovery';
 import { CommandFailedError } from '../../_common/error';
+import { installSecretsBinary } from '../../_common/install/secrets';
 import { runHealthChecks } from './health';
 import { installHooks } from './hooks';
 import { repairToken } from './repair';
@@ -69,6 +70,8 @@ export async function integrateClaude(
   const globalDir = isGlobal ? homedir() : undefined;
 
   let token = config.token;
+
+  await installSecretsBinary();
 
   blank();
   text('Phase 2/3: Health Check & Repair');

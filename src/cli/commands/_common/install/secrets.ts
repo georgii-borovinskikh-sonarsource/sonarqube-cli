@@ -18,98 +18,79 @@
  * Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
-// Install sonar-secrets binary from binaries.sonarsource.com
-
 import { existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { spawnProcess } from '../../../lib/process';
-import { BIN_DIR } from '../../../lib/config-constants';
-import { buildLocalBinaryName, detectPlatform } from '../../../lib/platform-detector';
+import { spawnProcess } from '../../../../lib/process';
+import { BIN_DIR } from '../../../../lib/config-constants';
+import { buildLocalBinaryName, detectPlatform } from '../../../../lib/platform-detector';
 import {
   buildDownloadUrl,
   downloadBinary,
   verifyBinarySignature,
-} from '../../../lib/sonarsource-releases';
+} from '../../../../lib/sonarsource-releases';
 import {
   SONAR_SECRETS_VERSION,
   SONAR_SECRETS_SIGNATURES,
   SONARSOURCE_PUBLIC_KEY,
-} from '../../../lib/signatures';
-import { loadState, saveState } from '../../../lib/state-manager';
-import { version as VERSION } from '../../../../package.json';
-import logger from '../../../lib/logger';
-import type { PlatformInfo } from '../../../lib/install-types';
-import { SECRETS_BINARY_NAME } from '../../../lib/install-types';
-import { text, blank, note, success, warn, withSpinner, print } from '../../../ui';
-import { CommandFailedError } from '../_common/error';
+} from '../../../../lib/signatures';
+import { loadState, saveState } from '../../../../lib/state-manager';
+import { version as VERSION } from '../../../../../package.json';
+import logger from '../../../../lib/logger';
+import type { PlatformInfo } from '../../../../lib/install-types';
+import { SECRETS_BINARY_NAME } from '../../../../lib/install-types';
+import { text, warn, withSpinner, print, success } from '../../../../ui';
+import { CommandFailedError } from '../error';
+
+type DownloadResult = { skipped: boolean };
+type SecretsBinaryResult = { binaryPath: string; freshlyInstalled: boolean };
 
 const FILE_EXECUTABLE_PERMS = 0o755; // rwxr-xr-x
 const VERSION_REGEX_MAX_SEGMENT = 20;
 
-export interface InstallSecretsOptions {
-  force?: boolean;
-  status?: boolean;
-}
-
 /**
- * CLI wrapper with process exit handling
+ * Install sonar-secrets binary if not already present, and report success if freshly installed.
+ * Use this in commands where the user implicitly consents to installation by running the command.
  */
-export async function installSecrets(
-  options: InstallSecretsOptions,
-  { binDir }: { binDir?: string } = {},
-): Promise<void> {
-  if (options.status) {
-    await installSecretsStatus();
-  } else {
-    text('\nInstalling sonar-secrets binary\n');
-    const binaryPath = await performSecretInstall(options, { binDir });
-    logInstallationSuccess(binaryPath);
+export async function installSecretsBinary(): Promise<string> {
+  const { binaryPath, freshlyInstalled } = await resolveSecretsBinary({});
+  if (freshlyInstalled) {
+    success(`sonar-secrets installed at ${binaryPath}`);
   }
+  return binaryPath;
 }
 
-/**
- * Core install logic for sonar-secrets binary download and setup
- */
-export async function performSecretInstall(
+export async function resolveSecretsBinary(
   options: { force?: boolean },
   { binDir }: { binDir?: string } = {},
-): Promise<string> {
+): Promise<SecretsBinaryResult> {
   const platform = detectPlatform();
   const resolvedBinDir = ensureBinDirectory(binDir);
   const binaryPath = join(resolvedBinDir, buildLocalBinaryName(platform));
 
-  text(`Platform: ${platform.os}-${platform.arch}`);
-
-  try {
-    await performInstallation(options, platform, binaryPath);
-    text(`  sonar-secrets installed at ${binaryPath}`);
-    return binaryPath;
-  } catch (err) {
-    const isAlreadyUpToDate =
-      (err as Error).message === 'Installation skipped - already up to date';
-    if (isAlreadyUpToDate) {
-      return binaryPath;
-    }
-    throw err;
-  }
+  const { skipped } = await downloadAndInstall(options, platform, binaryPath);
+  return { binaryPath, freshlyInstalled: !skipped };
 }
 
-async function performInstallation(
+async function downloadAndInstall(
   options: { force?: boolean },
   platform: PlatformInfo,
   binaryPath: string,
-): Promise<void> {
+): Promise<DownloadResult> {
   // Check existing installation
   if (!options.force) {
-    const skipStatus = await checkExistingInstallation(binaryPath);
+    const skipStatus = await withSpinner('Checking sonar-secrets', () =>
+      checkExistingInstallation(binaryPath),
+    );
     if (skipStatus) {
-      throw new CommandFailedError('Installation skipped - already up to date');
+      text(`  sonar-secrets ${SONAR_SECRETS_VERSION} is already installed (latest)`);
+      return { skipped: true };
     }
   }
 
   // Download pinned version
   const version = SONAR_SECRETS_VERSION;
-  print(`  Version: ${version}`);
+  text(`Installing sonar-secrets ${version}`);
+  text(`  Platform: ${platform.os}-${platform.arch}`);
 
   const downloadUrl = buildDownloadUrl(version, platform);
   await withSpinner(`Downloading sonar-secrets ${version}`, () =>
@@ -137,52 +118,7 @@ async function performInstallation(
   print(`  sonar-secrets ${installedVersion}`);
 
   recordInstallationInState(installedVersion, binaryPath);
-}
-
-/**
- * Status command: sonar secret status
- */
-async function installSecretsStatus(): Promise<void> {
-  const platform = detectPlatform();
-  const binaryPath = join(BIN_DIR, buildLocalBinaryName(platform));
-
-  text('\nChecking sonar-secrets installation status\n');
-
-  if (!existsSync(binaryPath)) {
-    text('Status: Not installed');
-    text('  Install with: sonar install secrets');
-    return;
-  }
-
-  const version = await checkInstalledVersion(binaryPath);
-
-  if (version) {
-    text(`Status: Installed (v${version})`);
-    text(`Path: ${binaryPath}`);
-
-    // Check for updates
-    try {
-      const latestVersion = SONAR_SECRETS_VERSION;
-
-      if (version === latestVersion) {
-        blank();
-        success('Up to date');
-      } else {
-        blank();
-        warn(`Update available: v${latestVersion}`);
-        text('  Run: sonar secret install');
-      }
-    } catch (err) {
-      logger.debug(`Failed to check for updates: ${(err as Error).message}`);
-      warn('Could not check for updates (network/API error)');
-    }
-
-    return;
-  }
-
-  throw new CommandFailedError(
-    `Binary is installed but could not be called.\nPath: ${binaryPath}\n  Reinstall with: sonar install secrets --force`,
-  );
+  return { skipped: false };
 }
 
 function ensureBinDirectory(dir?: string): string {
@@ -264,26 +200,10 @@ async function checkExistingInstallation(binaryPath: string): Promise<boolean> {
   const pinnedVersion = SONAR_SECRETS_VERSION;
 
   if (existingVersion === pinnedVersion) {
-    text(`sonar-secrets ${existingVersion} is already installed (latest)`);
-    text('  Use --force to reinstall');
     return true;
   }
 
   warn(`Version mismatch: ${existingVersion} ≠ ${pinnedVersion}`);
   text('  Updating...\n');
   return false;
-}
-
-function logInstallationSuccess(binaryPath: string): void {
-  blank();
-  success('Installation complete!');
-  note([
-    `Binary path: ${binaryPath}`,
-    '',
-    'Manual usage:',
-    '  sonar analyze secrets [path...]',
-    '',
-    'Check installation status:',
-    '  sonar install secrets --status',
-  ]);
 }

@@ -18,15 +18,13 @@
  * Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
 import { spawnProcess } from '../../../lib/process';
 import type { SpawnResult } from '../../../lib/process';
-import { buildLocalBinaryName, detectPlatform } from '../../../lib/platform-detector';
 import type { ResolvedAuth } from '../../../lib/auth-resolver';
 import logger from '../../../lib/logger';
 import { blank, error, print, success, text } from '../../../ui';
 import { CommandFailedError, InvalidOptionError } from '../_common/error.js';
-import { BIN_DIR } from '../../../lib/config-constants';
+import { installSecretsBinary } from '../_common/install/secrets';
 
 export interface AnalyzeSecretsOptions {
   paths?: string[];
@@ -51,9 +49,10 @@ async function handleCheckCommand(
   options: AnalyzeSecretsOptions,
   auth: ResolvedAuth,
 ): Promise<void> {
-  const scanEnv = setupScanEnvironment(options, auth);
+  validateScanOptions(options);
+  const binaryPath = await installSecretsBinary();
+  const { authUrl, authToken } = setupScanEnvironment(binaryPath, auth);
   const scanStartTime = Date.now();
-  const { binaryPath, authUrl, authToken } = scanEnv;
 
   if (options.stdin) {
     await performStdinScan(binaryPath, authUrl, authToken, scanStartTime);
@@ -68,14 +67,7 @@ interface ScanEnvironment {
   authToken?: string;
 }
 
-function setupScanEnvironment(
-  options: { paths?: string[]; stdin?: boolean },
-  auth: ResolvedAuth,
-): ScanEnvironment {
-  validateScanOptions(options);
-
-  const binaryPath = setupBinaryPath();
-
+function setupScanEnvironment(binaryPath: string, auth: ResolvedAuth): ScanEnvironment {
   return { binaryPath, authUrl: auth.serverUrl, authToken: auth.token };
 }
 
@@ -88,15 +80,6 @@ function validateScanOptions(options: { paths?: string[]; stdin?: boolean }): vo
   if (hasPaths && options.stdin) {
     throw new InvalidOptionError('Cannot use both paths and --stdin');
   }
-}
-
-function setupBinaryPath(): string {
-  const platform = detectPlatform();
-  const binaryPath = join(BIN_DIR, buildLocalBinaryName(platform));
-
-  validateCheckCommandEnvironment(binaryPath);
-
-  return binaryPath;
 }
 
 async function performStdinScan(
@@ -141,14 +124,6 @@ async function performPathsScan(
     handleScanSuccess(result, scanDurationMs);
   } else {
     handleScanFailure(result, scanDurationMs, exitCode);
-  }
-}
-
-function validateCheckCommandEnvironment(binaryPath: string): void {
-  if (!existsSync(binaryPath)) {
-    throw new CommandFailedError(
-      'sonar-secrets is not installed\n  Install with: sonar install secrets',
-    );
   }
 }
 
@@ -334,9 +309,9 @@ function handleScanError(err: unknown): void {
       '\nThe scan took longer than 30 seconds.\nTry scanning a smaller file or check system resources.';
   } else if (errorMessage.includes('ENOENT')) {
     details =
-      '\nThe binary file was not found or is not executable.\nReinstall with: sonar install secrets --force';
+      '\nThe secrets analyzer binary was not found or is not executable.\nRun: sonar integrate';
   } else {
-    details = '\nCheck installation with: sonar install secrets --status';
+    details = '\nRun: sonar integrate';
   }
 
   throw new CommandFailedError(`Error: ${errorMessage}\n${details}\n`);
