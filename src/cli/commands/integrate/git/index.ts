@@ -40,7 +40,7 @@ import {
   text,
   warn,
 } from '../../../../ui';
-import { GitRepo, resolveGitHooksDir, toForwardSlash } from '../../_common/git-repo';
+import { GitRepo, resolveGitHooksDir } from '../../_common/git-repo';
 import { HOOK_MARKER, getHookScript } from './git-shell-fragments';
 import { installViaHusky } from './git-husky';
 import {
@@ -48,6 +48,7 @@ import {
   hasSonarHookInPreCommitConfig,
   installViaPreCommitFramework,
 } from './git-precommit-framework';
+import { normalizePath } from '../../../../lib/fs-utils';
 
 export type GitHookType = 'pre-commit' | 'pre-push';
 
@@ -88,7 +89,7 @@ export async function detectSonarHookInstallation(root: string): Promise<HookIns
   } catch {
     hooksDir = join(root, '.git', 'hooks');
   }
-  const isHusky = toForwardSlash(hooksDir).startsWith(toForwardSlash(join(root, '.husky')));
+  const isHusky = normalizePath(hooksDir).startsWith(normalizePath(join(root, '.husky')));
   return {
     preCommitConfig: hasSonarHookInPreCommitConfig(root),
     huskyPreCommit: isHusky && hasMarker(join(hooksDir, 'pre-commit')),
@@ -103,13 +104,22 @@ export async function detectSonarHookInstallation(root: string): Promise<HookIns
 // Shared interaction helpers
 // ---------------------------------------------------------------------------
 
+/** Rejects invalid `--hook` when it is set */
+export function validateHookOption(hook: string | undefined): void {
+  if (hook !== undefined && !isGitHookType(hook)) {
+    throw new InvalidOptionError('--hook must be pre-commit or pre-push');
+  }
+}
+
+/**
+ * Validates and returns explicit `--hook`, or `pre-commit` when non-interactive with no hook, or prompts to select.
+ */
 export async function resolveHookType(options: IntegrateGitOptions): Promise<GitHookType> {
-  if (options.nonInteractive || options.hook !== undefined) {
-    const rawHook = options.hook ?? 'pre-commit';
-    if (!isGitHookType(rawHook)) {
-      throw new InvalidOptionError('--hook must be pre-commit or pre-push');
-    }
-    return rawHook;
+  if (options.hook !== undefined) {
+    return options.hook;
+  }
+  if (options.nonInteractive) {
+    return 'pre-commit';
   }
   const choice = await selectPrompt<GitHookType>(
     'Would you like to install the pre-commit or pre-push hook?',
@@ -163,6 +173,7 @@ export function showVerificationGuide(hook: GitHookType): void {
         : '  3. Try to push:   git push',
       '  4. The hook should block the operation and report the secret.',
       `  5. Delete the file: ${platform() === 'win32' ? 'del' : 'rm'} ${VERIFY_FILE_NAME}`,
+      `  To skip hooks when needed, run ${hook === 'pre-commit' ? 'git commit' : 'git push'} with the --no-verify flag.`,
     ].join('\n'),
     'Verify the hook works',
   );
@@ -210,6 +221,8 @@ export async function installViaGitHooks(
 // ---------------------------------------------------------------------------
 
 async function integrateGitGlobal(options: IntegrateGitOptions): Promise<void> {
+  validateHookOption(options.hook);
+
   warn('Global hook installation');
   text('  Git prioritizes local repository settings over global ones.');
   text('  If a project has a local core.hooksPath set,');
@@ -244,7 +257,7 @@ async function integrateGitGlobal(options: IntegrateGitOptions): Promise<void> {
       'config',
       '--global',
       'core.hooksPath',
-      toForwardSlash(GLOBAL_HOOKS_DIR),
+      normalizePath(GLOBAL_HOOKS_DIR),
     ]);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -263,6 +276,8 @@ async function integrateGitGlobal(options: IntegrateGitOptions): Promise<void> {
 }
 
 export async function integrateGit(options: IntegrateGitOptions): Promise<void> {
+  validateHookOption(options.hook);
+
   intro('SonarQube Git integration (secrets scanning)');
   blank();
 

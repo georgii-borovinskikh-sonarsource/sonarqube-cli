@@ -24,9 +24,8 @@ import { existsSync, statSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { CommandFailedError } from './error';
 import { spawnProcess } from '../../../lib/process';
-
-const PRE_COMMIT_CONFIG_FILE = '.pre-commit-config.yaml';
-export const toForwardSlash = (p: string) => p.replaceAll('\\', '/');
+import { PRE_COMMIT_CONFIG_FILE } from '../integrate/git/git-precommit-framework';
+import { normalizePath } from '../../../lib/fs-utils';
 
 /**
  * Resolves the directory git uses for hooks (core.hooksPath or .git/hooks).
@@ -96,7 +95,7 @@ export class GitRepo {
   /** True if git's hooks path points to .husky (Husky is in use). */
   async usesHusky(): Promise<boolean> {
     const hooksDir = await this.getHooksDirOnce();
-    return toForwardSlash(hooksDir).startsWith(toForwardSlash(join(this.rootDir, '.husky')));
+    return normalizePath(hooksDir).startsWith(normalizePath(join(this.rootDir, '.husky')));
   }
 
   /** Resolved git hooks directory (core.hooksPath or .git/hooks). */

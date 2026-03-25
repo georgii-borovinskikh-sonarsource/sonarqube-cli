@@ -27,7 +27,6 @@ import type { CliResult } from './types.js';
 
 const PROJECT_ROOT = join(import.meta.dir, '../../..');
 const DEFAULT_BINARY = join(PROJECT_ROOT, 'dist', 'sonarqube-cli');
-
 const DEFAULT_TIMEOUT_MS = 30000;
 
 function getBinaryPath(coverageMode: boolean): string {
@@ -38,6 +37,11 @@ function getBinaryPath(coverageMode: boolean): string {
     );
   }
   return binaryPath;
+}
+
+/** Same executable `runCli` uses (coverage binary when `SONAR_CLI_USE_COVERAGE=1`). */
+export function getCliBinaryPath(): string {
+  return getBinaryPath(process.env.SONAR_CLI_USE_COVERAGE === '1');
 }
 
 const STDIN_CHUNK_DELAY_MS = 300;
