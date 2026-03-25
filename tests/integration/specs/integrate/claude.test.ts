@@ -463,9 +463,9 @@ describe('integrate claude', () => {
   );
 });
 
-// ─── A3S entitlement guard ────────────────────────────────────────────────────
+// ─── SQAA entitlement guard ────────────────────────────────────────────────────
 
-describe('integrate claude — A3S entitlement guard', () => {
+describe('integrate claude — SQAA entitlement guard', () => {
   let harness: TestHarness;
 
   beforeEach(async () => {
@@ -478,18 +478,18 @@ describe('integrate claude — A3S entitlement guard', () => {
   });
 
   it(
-    'installs PostToolUse A3S hook when Cloud org has A3S entitlement (repair path)',
+    'installs PostToolUse SQAA hook when Cloud org has SQAA entitlement (repair path)',
     async () => {
       const server = await harness
         .newFakeServer()
         .withAuthToken('cloud-token')
         .withOrganizations([{ key: 'my-org', name: 'My Org' }])
-        .withA3sEntitlement('my-org', 'test-uuid-1234')
+        .withSqaaEntitlement('my-org', 'test-uuid-1234')
         .withProject('my-project')
         .start();
 
       // Point both Cloud URL constants at the fake server so SONARCLOUD_HOSTNAME check passes
-      // and getOrganizationId / checkA3sEntitlement hit the same fake server
+      // and getOrganizationId / checkSqaaEntitlement hit the same fake server
       const serverUrl = server.baseUrl();
       harness.withAuth(serverUrl, 'cloud-token', 'my-org');
 
@@ -504,20 +504,20 @@ describe('integrate claude — A3S entitlement guard', () => {
       const settings = harness.cwd.file('.claude', 'settings.json').asJson();
       expect(settings.hooks?.PostToolUse).toBeDefined();
       expect(
-        harness.cwd.exists('.claude', 'hooks', 'sonar-a3s', 'build-scripts', 'posttool-a3s.sh'),
+        harness.cwd.exists('.claude', 'hooks', 'sonar-sqaa', 'build-scripts', 'posttool-sqaa.sh'),
       ).toBe(true);
     },
     { timeout: 30000 },
   );
 
   it(
-    'does not install PostToolUse A3S hook when org has no A3S entitlement (repair path)',
+    'does not install PostToolUse SQAA hook when org has no SQAA entitlement (repair path)',
     async () => {
       const server = await harness
         .newFakeServer()
         .withAuthToken('cloud-token')
         .withOrganizations([{ key: 'my-org', name: 'My Org' }])
-        .withA3sEntitlement('my-org', 'test-uuid-1234', { eligible: false, enabled: false })
+        .withSqaaEntitlement('my-org', 'test-uuid-1234', { eligible: false, enabled: false })
         .start();
 
       const serverUrl = server.baseUrl();
@@ -534,20 +534,20 @@ describe('integrate claude — A3S entitlement guard', () => {
       const settings = harness.cwd.file('.claude', 'settings.json').asJson();
       expect(settings.hooks?.PostToolUse).toBeUndefined();
       expect(
-        harness.cwd.exists('.claude', 'hooks', 'sonar-a3s', 'build-scripts', 'posttool-a3s.sh'),
+        harness.cwd.exists('.claude', 'hooks', 'sonar-sqaa', 'build-scripts', 'posttool-sqaa.sh'),
       ).toBe(false);
     },
     { timeout: 30000 },
   );
 
   it(
-    'sonar-a3s agentExtension is always project-level even when -g flag is used',
+    'sonar-sqaa agentExtension is always project-level even when -g flag is used',
     async () => {
       const server = await harness
         .newFakeServer()
         .withAuthToken('cloud-token')
         .withOrganizations([{ key: 'my-org', name: 'My Org' }])
-        .withA3sEntitlement('my-org', 'test-uuid-1234')
+        .withSqaaEntitlement('my-org', 'test-uuid-1234')
         .withProject('my-project')
         .start();
       const serverUrl = server.baseUrl();
@@ -566,12 +566,175 @@ describe('integrate claude — A3S entitlement guard', () => {
       expect(result.exitCode).toBe(0);
 
       const state = harness.stateJsonFile.asJson();
-      const a3sExt = (state.agentExtensions as Array<{ name: string; global: boolean }>).find(
-        (e) => e.name === 'sonar-a3s',
+      const sqaaExt = (state.agentExtensions as Array<{ name: string; global: boolean }>).find(
+        (e) => e.name === 'sonar-sqaa',
       );
 
-      expect(a3sExt).toBeDefined();
-      expect(a3sExt!.global).toBe(false);
+      expect(sqaaExt).toBeDefined();
+      expect(sqaaExt!.global).toBe(false);
+    },
+    { timeout: 30000 },
+  );
+
+  it(
+    'removes obsolete sonar-a3s hook entry when sonar-sqaa is installed',
+    async () => {
+      const server = await harness
+        .newFakeServer()
+        .withAuthToken('cloud-token')
+        .withOrganizations([{ key: 'my-org', name: 'My Org' }])
+        .withSqaaEntitlement('my-org', 'test-uuid-1234')
+        .withProject('my-project')
+        .start();
+      const serverUrl = server.baseUrl();
+      harness.withAuth(serverUrl, 'cloud-token', 'my-org');
+
+      // Simulate pre-existing sonar-a3s hook from an older install, plus a third-party hook
+      harness.cwd.writeFile(
+        '.claude/hooks/sonar-a3s/build-scripts/posttool-a3s.sh',
+        '#!/bin/bash\necho old',
+      );
+      harness.cwd.writeFile(
+        '.claude/settings.json',
+        JSON.stringify({
+          hooks: {
+            PostToolUse: [
+              {
+                matcher: 'Edit|Write',
+                hooks: [
+                  {
+                    type: 'command',
+                    command: '.claude/hooks/sonar-a3s/build-scripts/posttool-a3s.sh',
+                    timeout: 60,
+                  },
+                ],
+              },
+              {
+                matcher: '*',
+                hooks: [
+                  {
+                    type: 'command',
+                    command: '.claude/hooks/some-other-tool/run.sh',
+                    timeout: 30,
+                  },
+                ],
+              },
+            ],
+          },
+        }),
+      );
+
+      const result = await harness.run(`integrate claude --project my-project --non-interactive`, {
+        extraEnv: {
+          SONAR_CLI_SONARCLOUD_URL: serverUrl,
+          SONAR_CLI_SONARCLOUD_API_URL: serverUrl,
+        },
+      });
+
+      expect(result.exitCode).toBe(0);
+      const settings = harness.cwd.file('.claude', 'settings.json').asJson();
+      const postToolUseCommands = (
+        settings.hooks?.PostToolUse as Array<{ hooks: Array<{ command: string }> }>
+      )?.flatMap((e) => e.hooks.map((h) => h.command));
+      expect(postToolUseCommands?.some((c: string) => c.includes('sonar-a3s'))).toBe(false);
+      expect(postToolUseCommands?.some((c: string) => c.includes('sonar-sqaa'))).toBe(true);
+      expect(postToolUseCommands?.some((c: string) => c.includes('some-other-tool'))).toBe(true);
+      expect(harness.cwd.exists('.claude', 'hooks', 'sonar-a3s')).toBe(false);
+    },
+    { timeout: 30000 },
+  );
+
+  it(
+    'removes sonar-a3s entries from state.json when SQAA hooks are installed via migration',
+    async () => {
+      const server = await harness
+        .newFakeServer()
+        .withAuthToken('cloud-token')
+        .withOrganizations([{ key: 'my-org', name: 'My Org' }])
+        .withSqaaEntitlement('my-org', 'test-uuid-1234')
+        .withProject('my-project')
+        .start();
+      const serverUrl = server.baseUrl();
+
+      // Simulate an old install: sonar-a3s is the PostToolUse hook, no sonar-sqaa yet
+      const staleState = {
+        version: '1.0',
+        lastUpdated: new Date().toISOString(),
+        auth: {
+          isAuthenticated: true,
+          connections: [
+            {
+              id: 'test-conn',
+              type: 'cloud',
+              serverUrl,
+              orgKey: 'my-org',
+              authenticatedAt: new Date().toISOString(),
+              keystoreKey: `sonarqube-cli:${serverUrl}:my-org`,
+            },
+          ],
+          activeConnectionId: 'test-conn',
+        },
+        agents: {
+          'claude-code': {
+            configured: true,
+            configuredByCliVersion: '0.5.0',
+            hooks: {
+              installed: [
+                { name: 'sonar-a3s', type: 'PostToolUse', installedAt: new Date().toISOString() },
+                {
+                  name: 'sonar-secrets',
+                  type: 'PreToolUse',
+                  installedAt: new Date().toISOString(),
+                },
+              ],
+            },
+            skills: { installed: [] },
+          },
+        },
+        config: { cliVersion: CURRENT_VERSION },
+        telemetry: { enabled: false, firstUseDate: new Date().toISOString(), events: [] },
+        agentExtensions: [
+          {
+            id: randomUUID(),
+            agentId: 'claude-code',
+            projectRoot: harness.cwd.path,
+            global: false,
+            kind: 'hook',
+            name: 'sonar-a3s',
+            hookType: 'PostToolUse',
+            updatedByCliVersion: '0.5.0',
+            updatedAt: new Date().toISOString(),
+          },
+        ],
+      };
+
+      harness
+        .state()
+        .withRawState(JSON.stringify(staleState))
+        .withKeychainToken(serverUrl, 'cloud-token', 'my-org');
+      harness.cwd.writeFile(
+        'sonar-project.properties',
+        [`sonar.host.url=${serverUrl}`, 'sonar.projectKey=my-project'].join('\n'),
+      );
+
+      const result = await harness.run(`integrate claude --project my-project --non-interactive`, {
+        extraEnv: {
+          SONAR_CLI_SONARCLOUD_URL: serverUrl,
+          SONAR_CLI_SONARCLOUD_API_URL: serverUrl,
+        },
+      });
+
+      expect(result.exitCode).toBe(0);
+
+      const state = harness.stateJsonFile.asJson();
+      const extensions = state.agentExtensions as Array<{ name: string }>;
+      const hooks = (state.agents?.['claude-code']?.hooks?.installed ?? []) as Array<{
+        name: string;
+      }>;
+
+      expect(extensions.some((e) => e.name === 'sonar-a3s')).toBe(false);
+      expect(hooks.some((h) => h.name === 'sonar-a3s')).toBe(false);
+      expect(extensions.some((e) => e.name === 'sonar-sqaa')).toBe(true);
     },
     { timeout: 30000 },
   );
@@ -867,9 +1030,9 @@ describe('integrate claude — file placement (local vs global)', () => {
         const globalSecretsHooks = extensions.filter((e) => e.name === 'sonar-secrets' && e.global);
         expect(globalSecretsHooks.length).toBeGreaterThan(0);
 
-        // sonar-a3s is always project-level, even when -g is used
-        const a3sHooks = extensions.filter((e) => e.name === 'sonar-a3s');
-        for (const hook of a3sHooks) {
+        // sonar-sqaa is always project-level, even when -g is used
+        const sqaaHooks = extensions.filter((e) => e.name === 'sonar-sqaa');
+        for (const hook of sqaaHooks) {
           expect(hook.global).toBe(false);
         }
       },
