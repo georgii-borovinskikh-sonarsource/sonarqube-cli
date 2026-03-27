@@ -18,68 +18,42 @@
  * Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
-import { deleteToken, getToken as getKeystoreToken } from '../../../cli/commands/_common/token';
-import { discoverServer } from '../_common/discovery';
-import { generateConnectionId, loadState, saveState } from '../../../lib/state-manager';
+import { deleteToken } from '../../../cli/commands/_common/token';
+import {
+  generateConnectionId,
+  getActiveConnection,
+  loadState,
+  saveState,
+} from '../../../lib/state-manager';
 import { print, success } from '../../../ui';
-import { SONARCLOUD_HOSTNAME, SONARCLOUD_URL } from '../../../lib/config-constants';
-import { CommandFailedError } from '../_common/error';
-
-/**
- * Check if server is SonarCloud
- */
-function isSonarCloud(serverURL: string): boolean {
-  try {
-    const url = new URL(serverURL);
-    return url.hostname === SONARCLOUD_HOSTNAME;
-  } catch {
-    return false;
-  }
-}
-
-export interface AuthLogoutOptions {
-  server?: string;
-  org?: string;
-}
 
 /**
  * Logout command - remove token from keychain
  */
-export async function authLogout(options: AuthLogoutOptions): Promise<void> {
-  let server = options.server;
-  if (!server) {
-    const configServer = await discoverServer();
-    server = configServer || SONARCLOUD_URL;
-  }
-  const org = options.org;
+export async function authLogout(): Promise<void> {
+  const state = loadState();
+  const active = getActiveConnection(state);
 
-  if (isSonarCloud(server) && !org) {
-    throw new CommandFailedError('Organization key is required for SonarCloud logout');
-  }
-
-  const token = await getKeystoreToken(server, org);
-  if (!token) {
-    const displayServer = isSonarCloud(server) ? `${server} (${org})` : server;
-    print(`No token found for: ${displayServer}`);
+  if (!state.auth.isAuthenticated || active === undefined || state.auth.connections.length === 0) {
+    print('You are already logged out.');
     return;
   }
 
+  const server = active.serverUrl;
+  const org = active.orgKey;
+
   await deleteToken(server, org);
 
-  const state = loadState();
   const connectionId = generateConnectionId(server, org);
   state.auth.connections = state.auth.connections.filter((c) => c.id !== connectionId);
 
-  if (state.auth.activeConnectionId === connectionId) {
-    state.auth.activeConnectionId = state.auth.connections[0]?.id;
-  }
+  state.auth.activeConnectionId = undefined;
 
-  if (state.auth.connections.length === 0) {
-    state.auth.isAuthenticated = false;
-  }
+  state.auth.isAuthenticated = false;
 
   saveState(state);
 
-  const displayServerLogout = isSonarCloud(server) ? `${server} (${org})` : server;
+  const displayServerLogout =
+    active.type === 'cloud' && org !== undefined ? `${server} (${org})` : server;
   success(`Logged out from: ${displayServerLogout}`);
 }
