@@ -21,10 +21,15 @@
 // Unit tests for the centralized auth resolver
 
 import { describe, it, expect, beforeEach, afterEach, spyOn } from 'bun:test';
-import { resolveAuth, ENV_TOKEN, ENV_SERVER } from '../../src/lib/auth-resolver.js';
+import {
+  resolveAuth,
+  ENV_TOKEN,
+  ENV_SERVER,
+  resolveFromEndpoint,
+} from '../../src/lib/auth-resolver.js';
 import * as stateManager from '../../src/lib/state-manager.js';
 import { getDefaultState } from '../../src/lib/state.js';
-import { setMockUi } from '../../src/ui';
+import { clearMockUiCalls, getMockUiCalls, setMockUi } from '../../src/ui';
 import { createMockKeytar } from './helpers/mock-keytar.js';
 
 const SONARCLOUD_URL = 'https://sonarcloud.io';
@@ -37,6 +42,7 @@ describe('resolveAuth', () => {
   beforeEach(() => {
     keytarHandle.setup();
     setMockUi(true);
+    clearMockUiCalls();
     // Ensure env vars are clean
     delete process.env[ENV_TOKEN];
     delete process.env[ENV_SERVER];
@@ -104,6 +110,8 @@ describe('resolveAuth', () => {
           token: FAKE_TOKEN,
           serverUrl: SONARCLOUD_URL,
         });
+        const warnings = getMockUiCalls().filter((c) => c.method === 'warn');
+        expect(warnings.some((c) => String(c.args[0]).includes(ENV_TOKEN))).toBe(true);
       } finally {
         loadStateSpy.mockRestore();
       }
@@ -134,6 +142,8 @@ describe('resolveAuth', () => {
           token: FAKE_TOKEN,
           serverUrl: SONARCLOUD_URL,
         });
+        const warnings = getMockUiCalls().filter((c) => c.method === 'warn');
+        expect(warnings.some((c) => String(c.args[0]).includes(ENV_SERVER))).toBe(true);
       } finally {
         loadStateSpy.mockRestore();
       }
@@ -200,5 +210,42 @@ describe('resolveAuth', () => {
 
   it('exports ENV_SERVER constant', () => {
     expect(ENV_SERVER).toBe('SONARQUBE_CLI_SERVER');
+  });
+});
+
+describe('resolveBaseUrl', () => {
+  it('returns the SonarCloud URL for /api endpoints', () => {
+    const result = resolveFromEndpoint('https://sonarcloud.io', '/api/system/status');
+    expect(result).toBe('https://sonarcloud.io');
+  });
+
+  it('returns the SonarCloud API URL for non-/api endpoints', () => {
+    const result = resolveFromEndpoint('https://sonarcloud.io', '/organizations/search');
+    expect(result).toBe('https://api.sonarcloud.io');
+  });
+
+  it('returns the SonarCloud URL for /api/v2 endpoints', () => {
+    const result = resolveFromEndpoint('https://sonarcloud.io', '/api/v2/issues/search');
+    expect(result).toBe('https://sonarcloud.io');
+  });
+
+  it('strips trailing slash from server URL', () => {
+    const result = resolveFromEndpoint('https://sonarcloud.io/', '/api/system/status');
+    expect(result).toBe('https://sonarcloud.io');
+  });
+
+  it('returns the normalized URL for non-SonarCloud servers', () => {
+    const result = resolveFromEndpoint('https://my-sonarqube.example.com/', '/api/system/status');
+    expect(result).toBe('https://my-sonarqube.example.com');
+  });
+
+  it('returns the server URL as-is for self-hosted instances', () => {
+    const result = resolveFromEndpoint('https://sonar.mycompany.com', '/api/issues/search');
+    expect(result).toBe('https://sonar.mycompany.com');
+  });
+
+  it('returns the input as-is when the URL is not parseable', () => {
+    const result = resolveFromEndpoint('not-a-valid-url', '/api/system/status');
+    expect(result).toBe('not-a-valid-url');
   });
 });
