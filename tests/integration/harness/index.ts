@@ -20,12 +20,14 @@
 
 // TestHarness — main entry point for integration tests
 
-import { mkdirSync, rmSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { runCli } from './cli-runner.js';
 import { EnvironmentBuilder } from './environment-builder.js';
 import { Dir } from './dir';
+import { buildHomeEnv } from './platform';
 import { FakeSonarQubeServer, FakeSonarQubeServerBuilder } from './fake-sonarqube-server.js';
 import { FakeBinariesServer, FakeBinariesServerBuilder } from './fake-binaries-server.js';
 import type { CliResult, RunOptions } from './types.js';
@@ -39,6 +41,7 @@ export {
 } from './fake-sonarqube-server.js';
 export { FakeBinariesServer, FakeBinariesServerBuilder } from './fake-binaries-server.js';
 export type { CliResult, RunOptions, RecordedRequest } from './types.js';
+export { IS_WINDOWS, SCRIPT_EXT, hookScriptName, hookScriptPath, normalizePath } from './platform';
 
 export class TestHarness {
   private readonly tempDir: Dir;
@@ -151,11 +154,6 @@ export class TestHarness {
       if (val !== undefined) systemVars[key] = val;
     }
 
-    const homeEnv: Record<string, string> =
-      process.platform === 'win32'
-        ? { USERPROFILE: this.userHome.path }
-        : { HOME: this.userHome.path };
-
     const activeBinariesServer = this.binariesServers.at(-1);
     const fakeBinariesEnv: Record<string, string> = activeBinariesServer
       ? { SONARQUBE_CLI_BINARIES_URL: activeBinariesServer.baseUrl() }
@@ -176,7 +174,7 @@ export class TestHarness {
       CI: 'true',
       ...this._extraEnv,
       ...(options?.extraEnv ?? {}),
-      ...homeEnv,
+      ...buildHomeEnv(this.userHome.path),
     };
 
     return runCli(command, env, {
@@ -199,6 +197,13 @@ export class TestHarness {
         }),
       ),
     );
-    rmSync(this.tempDir.path, { recursive: true, force: true });
+    await rm(this.tempDir.path, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 1000,
+    }).catch(() => {
+      /* best-effort: temp dirs are cleaned up by the OS */
+    });
   }
 }

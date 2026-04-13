@@ -21,6 +21,8 @@
 // Declarative builder for test file system fixtures
 
 import { existsSync, readFileSync, statSync } from 'node:fs';
+import { extname } from 'node:path';
+import { IS_WINDOWS } from './platform';
 
 export class File {
   public readonly path: string;
@@ -42,6 +44,10 @@ export class File {
   }
 
   get isExecutable(): boolean {
+    if (IS_WINDOWS) {
+      const executableExts = ['.exe', '.cmd', '.bat', '.com', '.ps1'];
+      return executableExts.includes(extname(this.path).toLowerCase());
+    }
     const stats = statSync(this.path);
     return !!(stats.mode & 0o100);
   }
