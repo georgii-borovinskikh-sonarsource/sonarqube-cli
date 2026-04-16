@@ -432,7 +432,7 @@ describe('integrate claude', () => {
     { timeout: 30000 },
   );
   it(
-    'prompt-secrets script uses correct subcommand (sonar analyze secrets) after integration',
+    'prompt-secrets.sh uses correct subcommand (sonar hook claude-prompt-submit) after integration',
     async () => {
       const server = await harness
         .newFakeServer()
@@ -457,7 +457,7 @@ describe('integrate claude', () => {
           hookScriptName('prompt-secrets'),
         )
         .asText();
-      expect(promptScriptContent).toContain('sonar analyze secrets');
+      expect(promptScriptContent).toContain('sonar hook claude-prompt-submit');
       expect(promptScriptContent).not.toContain('sonar analyze --file');
     },
     { timeout: 30000 },
@@ -1213,8 +1213,8 @@ describe.skipIf(IS_WINDOWS)('integrate claude — legacy state without agentExte
 
       // Hook scripts must be rewritten to use the new subcommand
       const pretoolContent = harness.cwd.file(pretoolScriptRel).asText();
-      expect(pretoolContent).toContain('sonar analyze secrets');
-      expect(pretoolContent).not.toContain('sonar analyze --file');
+      expect(pretoolContent).toContain('sonar hook claude-pre-tool-use');
+      expect(pretoolContent).not.toContain('sonar analyze');
 
       // settings.json must have correctly structured hook entries (relative paths, project-level)
       const settings = harness.cwd.file('.claude', 'settings.json').asJson();
@@ -1314,8 +1314,8 @@ describe.skipIf(IS_WINDOWS)('post-update migration — hook script rewrite on CL
 
       // Scripts must be rewritten with the new subcommand
       const pretoolContent = harness.userHome.file(pretoolScriptRel).asText();
-      expect(pretoolContent).toContain('sonar analyze secrets');
-      expect(pretoolContent).not.toContain('sonar analyze --file');
+      expect(pretoolContent).toContain('sonar hook claude-pre-tool-use');
+      expect(pretoolContent).not.toContain('sonar analyze');
 
       // settings.json must have correctly structured hook entries (absolute paths, global)
       const settings = harness.userHome.file('.claude', 'settings.json').asJson();
@@ -1442,6 +1442,141 @@ describe('integrate claude — sonar-secrets auto-install', () => {
 
       expect(result.exitCode).toBe(0);
       expect(fakeBinariesServer.getRecordedRequests()).toHaveLength(0);
+    },
+    { timeout: 30000 },
+  );
+});
+
+// ─── Hook migration scenarios ─────────────────────────────────────────────────
+
+describe('integrate claude — hook migration scenarios', () => {
+  let harness: TestHarness;
+
+  beforeEach(async () => {
+    harness = await TestHarness.create();
+    await harness.newFakeBinariesServer().start();
+  });
+
+  afterEach(async () => {
+    await harness.dispose();
+  });
+
+  async function setupAndRun(serverUrl: string, token: string): Promise<void> {
+    harness.withAuth(serverUrl, token);
+    harness.state().withSecretsBinaryInstalled();
+    harness.cwd.writeFile(
+      'sonar-project.properties',
+      [`sonar.host.url=${serverUrl}`, 'sonar.projectKey=my-project'].join('\n'),
+    );
+    await harness.run('integrate claude --non-interactive');
+  }
+
+  it(
+    'scenario A: fresh install writes thin launcher scripts',
+    async () => {
+      const server = await harness.newFakeServer().withAuthToken('tok').withProject('p').start();
+
+      await setupAndRun(server.baseUrl(), 'tok');
+
+      const preToolContent = harness.cwd
+        .file(
+          '.claude',
+          'hooks',
+          'sonar-secrets',
+          'build-scripts',
+          hookScriptName('pretool-secrets'),
+        )
+        .asText();
+      const promptContent = harness.cwd
+        .file(
+          '.claude',
+          'hooks',
+          'sonar-secrets',
+          'build-scripts',
+          hookScriptName('prompt-secrets'),
+        )
+        .asText();
+      expect(preToolContent).toContain('sonar hook claude-pre-tool-use');
+      expect(preToolContent).not.toContain('sonar analyze');
+      expect(promptContent).toContain('sonar hook claude-prompt-submit');
+      expect(promptContent).not.toContain('sonar analyze');
+    },
+    { timeout: 30000 },
+  );
+
+  it(
+    'scenario B: old fat scripts are overwritten with thin launchers',
+    async () => {
+      const server = await harness.newFakeServer().withAuthToken('tok').withProject('p').start();
+      // Simulate old-style scripts that contained embedded business logic
+      harness.cwd.writeFile(
+        `.claude/hooks/sonar-secrets/build-scripts/${hookScriptName('pretool-secrets')}`,
+        '#!/bin/bash\nsonar analyze secrets --file "$INPUT_FILE"\n',
+      );
+      harness.cwd.writeFile(
+        `.claude/hooks/sonar-secrets/build-scripts/${hookScriptName('prompt-secrets')}`,
+        '#!/bin/bash\nsonar analyze secrets --stdin\n',
+      );
+
+      await setupAndRun(server.baseUrl(), 'tok');
+
+      const preToolContent = harness.cwd
+        .file(
+          '.claude',
+          'hooks',
+          'sonar-secrets',
+          'build-scripts',
+          hookScriptName('pretool-secrets'),
+        )
+        .asText();
+      expect(preToolContent).toContain('sonar hook claude-pre-tool-use');
+      expect(preToolContent).not.toContain('sonar analyze');
+    },
+    { timeout: 30000 },
+  );
+
+  it(
+    'scenario C: running integrate twice is idempotent — no duplicate hook entries',
+    async () => {
+      const server = await harness.newFakeServer().withAuthToken('tok').withProject('p').start();
+
+      await setupAndRun(server.baseUrl(), 'tok');
+      await harness.run('integrate claude --non-interactive');
+
+      const settings = harness.cwd.file('.claude', 'settings.json').asJson() as {
+        hooks?: Record<string, unknown[]>;
+      };
+      expect(settings.hooks?.PreToolUse).toHaveLength(1);
+      expect(settings.hooks?.UserPromptSubmit).toHaveLength(1);
+    },
+    { timeout: 30000 },
+  );
+
+  it(
+    'scenario D: unrelated hooks in settings.json are preserved after re-integration',
+    async () => {
+      const server = await harness.newFakeServer().withAuthToken('tok').withProject('p').start();
+      harness.cwd.writeFile(
+        '.claude/settings.json',
+        JSON.stringify({
+          hooks: {
+            PostToolUse: [
+              {
+                matcher: 'Bash',
+                hooks: [{ type: 'command', command: 'echo ran', timeout: 60 }],
+              },
+            ],
+          },
+        }),
+      );
+
+      await setupAndRun(server.baseUrl(), 'tok');
+
+      const settings = harness.cwd.file('.claude', 'settings.json').asJson() as {
+        hooks?: { PostToolUse?: Array<{ matcher: string }> };
+      };
+      const bashEntry = settings.hooks?.PostToolUse?.find((e) => e.matcher === 'Bash');
+      expect(bashEntry).toBeDefined();
     },
     { timeout: 30000 },
   );

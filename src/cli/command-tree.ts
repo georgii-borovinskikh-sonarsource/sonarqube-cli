@@ -44,6 +44,14 @@ import { parseInteger } from './commands/_common/parsing';
 import { MAX_PAGE_SIZE } from '../sonarqube/projects';
 import { apiCommand, apiExtraHelpText, type ApiCommandOptions } from './commands/api/api';
 import { GENERIC_HTTP_METHODS } from '../sonarqube/client';
+import { claudePreToolUse } from './commands/hook/claude-pre-tool-use';
+import { agentPromptSubmit } from './commands/hook/agent-prompt-submit';
+import {
+  agentPostToolUse,
+  type AgentPostToolUseOptions,
+} from './commands/hook/agent-post-tool-use';
+import { gitPreCommit } from './commands/hook/git-pre-commit';
+import { gitPrePush } from './commands/hook/git-pre-push';
 
 const DEFAULT_PAGE_SIZE = MAX_PAGE_SIZE;
 
@@ -243,6 +251,41 @@ COMMAND_TREE.command('self-update')
   .option('--status', 'Check for a newer version without installing')
   .option('--force', 'Install the latest version even if already up to date')
   .anonymousAction((options: SelfUpdateOptions) => selfUpdate(options));
+
+// Hidden callback command — internal handlers for agent and git hooks.
+// Shell hook scripts call `sonar hook <event>` to delegate all business logic to TypeScript.
+export const hookCommand = COMMAND_TREE.command('hook', { hidden: true })
+  .description('Internal hook handlers for agent and git hooks')
+  .enablePositionalOptions()
+  .anonymousAction(function (this: Command) {
+    this.outputHelp();
+  });
+
+hookCommand
+  .command('claude-pre-tool-use')
+  .description('PreToolUse handler: scan files for secrets before agent reads them')
+  .anonymousAction(() => claudePreToolUse());
+
+hookCommand
+  .command('claude-prompt-submit')
+  .description('UserPromptSubmit handler: scan prompts for secrets before sending')
+  .anonymousAction(() => agentPromptSubmit());
+
+hookCommand
+  .command('claude-post-tool-use')
+  .description('PostToolUse handler: run SQAA analysis after agent edits or writes a file')
+  .requiredOption('--project <key>', 'SonarQube Cloud project key')
+  .anonymousAction((options: AgentPostToolUseOptions) => agentPostToolUse(options));
+
+hookCommand
+  .command('git-pre-commit')
+  .description('git pre-commit handler: scan staged files for secrets')
+  .anonymousAction(() => gitPreCommit());
+
+hookCommand
+  .command('git-pre-push')
+  .description('git pre-push handler: scan files in new commits for secrets')
+  .anonymousAction(() => gitPrePush());
 
 // Hidden flush command — only registered when running as a telemetry worker.
 if (process.env[TELEMETRY_FLUSH_MODE_ENV]) {

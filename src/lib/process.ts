@@ -22,15 +22,18 @@
 
 import { spawn } from 'node:child_process';
 
-type StdioMode = 'pipe' | 'ignore' | 'inherit';
+export type StdioMode = 'pipe' | 'ignore' | 'inherit';
 
 export interface SpawnOptions {
   cwd?: string;
   env?: Record<string, string>;
   stdin?: StdioMode;
+  stdinData?: string;
   stdout?: StdioMode;
   stderr?: StdioMode;
   detached?: boolean;
+  /** Called immediately after the child process spawns, with a function to kill it. */
+  onSpawn?: (kill: () => void) => void;
 }
 
 export interface SpawnResult {
@@ -54,6 +57,7 @@ export async function spawnProcess(
       stdio: [options.stdin || 'ignore', options.stdout || 'pipe', options.stderr || 'pipe'],
       detached: options.detached || false,
     });
+    options.onSpawn?.(() => proc.kill());
 
     let stdout = '';
     let stderr = '';
@@ -68,6 +72,11 @@ export async function spawnProcess(
       proc.stderr.on('data', (data: Buffer) => {
         stderr += data.toString();
       });
+    }
+
+    if (options.stdinData !== undefined && proc.stdin) {
+      proc.stdin.write(options.stdinData);
+      proc.stdin.end();
     }
 
     proc.on('error', reject);
