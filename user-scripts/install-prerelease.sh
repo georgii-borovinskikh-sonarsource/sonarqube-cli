@@ -77,6 +77,67 @@ usage() {
   exit 1
 }
 
+# Detect the best shell profile file to update (inspired by nvm_detect_profile).
+# Honors $PROFILE override, detects shell from $SHELL, respects $ZDOTDIR for zsh.
+# Outputs exactly one file path, or nothing if no profile is found.
+detect_profile() {
+  if [[ "${PROFILE:-}" == "/dev/null" ]]; then
+    return
+  fi
+  if [[ -n "${PROFILE:-}" && -f "$PROFILE" ]]; then
+    echo "$PROFILE"
+    return
+  fi
+
+  local detected=""
+  case "${SHELL+${SHELL##*/}}" in
+    bash)
+      if [[ -f "$HOME/.bashrc" ]]; then
+        detected="$HOME/.bashrc"
+      elif [[ -f "$HOME/.bash_profile" ]]; then
+        detected="$HOME/.bash_profile"
+      fi
+      ;;
+    zsh)
+      if [[ -f "${ZDOTDIR:-$HOME}/.zshrc" ]]; then
+        detected="${ZDOTDIR:-$HOME}/.zshrc"
+      elif [[ -f "${ZDOTDIR:-$HOME}/.zprofile" ]]; then
+        detected="${ZDOTDIR:-$HOME}/.zprofile"
+      fi
+      ;;
+  esac
+
+  if [[ -z "$detected" ]]; then
+    for f in ".profile" ".bashrc" ".bash_profile" ".zprofile" ".zshrc"; do
+      if [[ -f "$HOME/$f" ]]; then
+        detected="$HOME/$f"
+        break
+      fi
+    done
+  fi
+
+  [[ -n "$detected" ]] && echo "$detected"
+}
+
+# Appends the sonarqube-cli PATH export to the best shell profile,
+# skipping if it is already present. Uses detect_profile() to choose
+# the target file and reports the outcome on stdout.
+update_profile() {
+  local path_line='export PATH="$HOME/.local/share/sonarqube-cli/bin:$PATH"'
+  local detected_profile
+  detected_profile="$(detect_profile || true)"
+
+  if [[ -z "$detected_profile" ]]; then
+    echo "No shell profile files found. Add the following line to your shell profile manually:"
+    echo "  $path_line"
+  elif grep -qF 'sonarqube-cli/bin' "$detected_profile" 2>/dev/null; then
+    echo "Already present in $detected_profile, skipping."
+  else
+    printf '\n# Added by sonarqube-cli installer\n%s\n' "$path_line" >> "$detected_profile"
+    echo "Updated PATH in: $detected_profile"
+  fi
+}
+
 main() {
   local version=""
   local token="${ARTIFACTORY_ACCESS_TOKEN:-}"
@@ -136,24 +197,7 @@ main() {
 
   echo "Installed sonar to: $dest"
 
-  local path_line='export PATH="$HOME/.local/share/sonarqube-cli/bin:$PATH"'
-  local shell_profiles=()
-  [[ -f "$HOME/.bashrc" ]] && shell_profiles+=("$HOME/.bashrc")
-  [[ -f "$HOME/.zshrc" ]]  && shell_profiles+=("$HOME/.zshrc")
-
-  if [[ ${#shell_profiles[@]} -eq 0 ]]; then
-    echo "No shell profile files found. Add the following line to your shell profile manually:"
-    echo "  $path_line"
-  else
-    for profile in "${shell_profiles[@]}"; do
-      if grep -qF 'sonarqube-cli/bin' "$profile" 2>/dev/null; then
-        echo "Already present in $profile, skipping."
-      else
-        printf '\n# Added by sonarqube-cli installer\n%s\n' "$path_line" >> "$profile"
-        echo "Updated PATH in: $profile"
-      fi
-    done
-  fi
+  update_profile
 
   echo ""
   echo "Installation complete! (pre-release $version)"
