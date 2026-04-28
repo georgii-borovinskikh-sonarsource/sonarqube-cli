@@ -1110,6 +1110,7 @@ body.commands-page { height: 100%; overflow: hidden; }
 }
 .feedback-fab-popover {
   display: none;
+  position: relative;
   width: 260px;
   padding: 20px;
   margin-bottom: 10px;
