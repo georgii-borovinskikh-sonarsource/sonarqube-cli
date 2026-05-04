@@ -70,6 +70,17 @@ Before writing a test, find an existing spec for the same command area and follo
 
 Each test creates a fresh `TestHarness` and disposes it in `afterEach`. The harness runs the compiled binary in a fully isolated environment (temp dir, fake keychain, fake servers). For fine-grained state setup beyond `withAuth`, use `harness.state()` builder (see `tests/integration/harness/environment-builder.ts`). For git hook tests, use `initGitRepo` / `stageFile` from `tests/integration/specs/hook/git-test-helpers.ts`.
 
+### Coverage
+
+To run tests with coverage and produce the LCOV reports consumed by SonarQube, use:
+
+```bash
+bun run test:coverage        # full pipeline: unit + integration + merge
+bun run test:coverage:unit   # unit only (faster, no binary build needed)
+```
+
+Do **not** use `bun test --coverage` directly — Bun's native LCOV reporter emits spurious entries on non-executable lines (signatures, braces, blank lines) that cause false positives in SonarQube.
+
 ## Documentation
 
 When adding, removing, or changing commands, scripts, or project structure, update `CLAUDE.md`, and `AGENTS.md` to reflect the change before finishing.

@@ -18,23 +18,25 @@
  * Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
+// Shared Istanbul coverage serialization helpers used by both
+// tests/coverage/index-coverage.ts (integration binary) and
+// tests/coverage/preload-instrumenter.ts (unit test preload).
+
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { dirname } from 'node:path';
+
 /**
- * Clears raw Istanbul JSON files left from a previous integration-test run.
- * Call this before starting a new coverage run to avoid stale data from
- * accumulating in tests/coverage/raw/.
- *
- * Run via: bun build-scripts/clear-coverage-raw.ts
+ * Writes globalThis.__coverage__ to the given file path.
+ * Creates parent directories as needed. No-ops silently on any error so that
+ * coverage serialization never crashes the process or test suite.
  */
-
-import { existsSync, rmSync } from 'node:fs';
-
-import { COVERAGE_RAW_DIR, COVERAGE_UNIT_RAW_DIR } from '../tests/coverage/paths.js';
-
-for (const dir of [COVERAGE_RAW_DIR, COVERAGE_UNIT_RAW_DIR]) {
-  if (existsSync(dir)) {
-    rmSync(dir, { recursive: true, force: true });
-    console.log(`Cleared: ${dir}`);
-  } else {
-    console.log(`Nothing to clear at: ${dir}`);
+export function serializeCoverageToFile(outputPath: string): void {
+  const cov = (globalThis as Record<string, unknown>).__coverage__;
+  if (!cov) return;
+  try {
+    mkdirSync(dirname(outputPath), { recursive: true });
+    writeFileSync(outputPath, JSON.stringify(cov));
+  } catch {
+    // best-effort: do not crash the process over coverage serialization
   }
 }
