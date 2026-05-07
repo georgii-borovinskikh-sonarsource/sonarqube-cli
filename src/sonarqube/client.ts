@@ -23,6 +23,7 @@
 import { version as VERSION } from '../../package.json';
 import { isSonarQubeCloud, resolveFromEndpoint } from '../lib/auth-resolver';
 import { print } from '../ui';
+import type { SettingsValue } from './settings-value';
 
 const GET_REQUEST_TIMEOUT_MS = 30000; // 30 seconds
 const POST_REQUEST_TIMEOUT_MS = 60000; // 60 seconds for analysis
@@ -145,6 +146,20 @@ export class SonarQubeClient {
     params?: Record<string, string | number | boolean>,
     baseUrl?: string,
   ): Promise<T> {
+    const result = await this.getSafe<T>(endpoint, params, baseUrl);
+
+    await this.raiseForStatus(result.response, 'GET');
+
+    return result.value!;
+  }
+
+  // false positive
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters
+  async getSafe<TValue>(
+    endpoint: string,
+    params?: Record<string, string | number | boolean>,
+    baseUrl?: string,
+  ): Promise<{ response: Response; value: TValue | undefined }> {
     const url = new URL(`${baseUrl ?? this.serverURL}${endpoint}`);
 
     if (params) {
@@ -159,9 +174,9 @@ export class SonarQubeClient {
       signal: AbortSignal.timeout(GET_REQUEST_TIMEOUT_MS),
     });
 
-    await this.raiseForStatus(response, 'GET');
+    const value = response.ok ? ((await response.json()) as TValue) : undefined;
 
-    return (await response.json()) as T;
+    return { response, value };
   }
 
   /**
@@ -324,11 +339,31 @@ export class SonarQubeClient {
   }
 
   /**
+   * Fetch project-scoped settings via `/api/settings/values`. The `component`
+   * query param scopes the values to a specific project; without it the API
+   * returns global defaults. Callers project the raw entries into whatever
+   * shape they need (e.g. `parseAnalysisProperties` for SCA).
+   */
+  async getProjectSettings(projectKey: string): Promise<SettingsValue[]> {
+    const result = await this.getSafe<{ settings?: SettingsValue[] }>('/api/settings/values', {
+      component: projectKey,
+    });
+
+    if (result.response.status === HTTP_STATUS_NOT_FOUND) {
+      throw new Error(`Project ${projectKey} not found`);
+    }
+
+    await this.raiseForStatus(result.response, 'GET');
+
+    return result.value?.settings ?? [];
+  }
+
+  /**
    * Check if component (project) exists
    */
-  async checkComponent(componentKey: string): Promise<boolean> {
+  async checkComponent(projectKey: string): Promise<boolean> {
     try {
-      await this.get('/api/components/show', { component: componentKey });
+      await this.get('/api/components/show', { component: projectKey });
       return true;
     } catch {
       return false;
