@@ -24,6 +24,7 @@ import { join } from 'node:path';
 import { type ResolvedAuth } from '../../../lib/auth-resolver';
 import { CLI_DIR } from '../../../lib/config-constants';
 import logger, { getLogLevelConfig } from '../../../lib/logger';
+import { fetchServerVersion, isAtLeast } from '../../../lib/server-info';
 import { SonarQubeClient } from '../../../sonarqube/client';
 import { error, print, warn } from '../../../ui';
 import { CommandFailedError, InvalidOptionError } from '../_common/error.js';
@@ -47,6 +48,8 @@ const EXIT_CODE_OK = 0;
 const EXIT_CODE_ERRORS_ONLY = 1;
 const EXIT_CODE_UNRESOLVED_RISKS = 51;
 
+const MIN_SCA_SQS_VERSION = '26.4';
+
 export interface AnalyzeDependencyRisksOptions {
   project: string;
   format: string;
@@ -63,6 +66,7 @@ export async function analyzeDependencyRisks(
   }
 
   const client = new SonarQubeClient(auth.serverUrl, auth.token);
+  await assertServerSupportsSca(auth);
   const enabled = await client.checkScaEnabled(auth.connectionType, auth.orgKey);
   if (!enabled) {
     throw new CommandFailedError(
@@ -145,4 +149,21 @@ export function countUnresolvedIssues(vm: DependencyRisksViewModel): number {
     }
   }
   return count;
+}
+
+async function assertServerSupportsSca(auth: ResolvedAuth): Promise<void> {
+  if (auth.connectionType === 'cloud') return;
+  let serverVersion: string;
+  try {
+    serverVersion = await fetchServerVersion(auth.serverUrl);
+  } catch {
+    throw new CommandFailedError(
+      `Could not determine SonarQube Server version. Software Composition Analysis requires SonarQube Server ${MIN_SCA_SQS_VERSION} or later.`,
+    );
+  }
+  if (!isAtLeast(serverVersion, MIN_SCA_SQS_VERSION)) {
+    throw new CommandFailedError(
+      `Software Composition Analysis requires SonarQube Server ${MIN_SCA_SQS_VERSION} or later (server is ${serverVersion}).`,
+    );
+  }
 }
