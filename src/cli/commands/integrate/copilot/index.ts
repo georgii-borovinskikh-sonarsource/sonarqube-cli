@@ -22,6 +22,7 @@ import { discoverProject } from '../../../../lib/project-workspace';
 import { SonarQubeClient } from '../../../../sonarqube/client';
 import { intro, print, success, warn } from '../../../../ui';
 import { InvalidOptionError } from '../../_common/error';
+import { setupContextAugmentation } from '../_common/context-augmentation';
 import type { IntegrateAgentOptions } from '../_common/types';
 import { installHooks } from './hooks';
 import type { InstructionsInstallResult } from './instructions';
@@ -73,6 +74,16 @@ export async function integrateCopilot(auth: ResolvedAuth, options: IntegrateAge
   });
 
   await setupMcpServer(project, isGlobal, projectKey);
+
+  if (!options.skipContext) {
+    await setupContextAugmentation({
+      auth,
+      agent: 'copilot',
+      projectRoot: project.rootDir,
+      projectKey,
+      isGlobal,
+    });
+  }
 
   reportInstallationOutcome(isGlobal, hookPath, instructions);
 }

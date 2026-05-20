@@ -38,10 +38,13 @@ export const GENERIC_HTTP_METHODS = ['GET', 'POST', 'PATCH', 'PUT', 'DELETE'] as
 export const METHODS_WITH_BODY = new Set<HttpMethod>(['POST', 'PATCH', 'PUT']);
 export type HttpMethod = (typeof GENERIC_HTTP_METHODS)[number];
 
+export type CagEntitlementStatus = 'enabled' | 'not_enabled' | 'check_failed';
+
 export class SonarQubeClient {
   private readonly serverURL: string;
   private readonly token: string;
   public readonly isCloud: boolean;
+  private readonly orgIdCache = new Map<string, Promise<string | null>>();
 
   constructor(serverURL: string, token: string) {
     this.serverURL = serverURL.replace(/\/$/, ''); // Remove trailing slash
@@ -262,6 +265,15 @@ export class SonarQubeClient {
    * Uses the region-specific Cloud API host (SonarQube Cloud only).
    */
   async getOrganizationId(organizationKey: string): Promise<string | null> {
+    let pending = this.orgIdCache.get(organizationKey);
+    if (!pending) {
+      pending = this.fetchOrganizationId(organizationKey);
+      this.orgIdCache.set(organizationKey, pending);
+    }
+    return pending;
+  }
+
+  private async fetchOrganizationId(organizationKey: string): Promise<string | null> {
     try {
       const endpoint = '/organizations/organizations';
       const result = await this.get<Array<{ id: string; uuidV4: string }>>(
@@ -330,6 +342,31 @@ export class SonarQubeClient {
     }
 
     return this.checkSqaaEntitlement(uuid);
+  }
+
+  async checkCagEntitlement(organizationUuid: string): Promise<CagEntitlementStatus> {
+    try {
+      const endpoint = `/a3s-analysis/cag-org-config/${organizationUuid}`;
+      const result = await this.get<{ id: string; enabled: boolean; eligible: boolean }>(
+        endpoint,
+        undefined,
+        resolveFromEndpoint(this.serverURL, endpoint),
+      );
+      return result.eligible && result.enabled ? 'enabled' : 'not_enabled';
+    } catch {
+      return 'check_failed';
+    }
+  }
+
+  async hasCagEntitlement(organizationKey?: string): Promise<CagEntitlementStatus> {
+    if (!organizationKey || !isSonarQubeCloud(this.serverURL)) {
+      return 'not_enabled';
+    }
+    const uuid = await this.getOrganizationId(organizationKey);
+    if (!uuid) {
+      return 'check_failed';
+    }
+    return this.checkCagEntitlement(uuid);
   }
 
   async checkAiRemediationEntitlement(

@@ -24,6 +24,7 @@ import { afterEach, beforeEach, describe, expect, it, Mock, spyOn } from 'bun:te
 
 import { CommandFailedError } from '../../../../../../src/cli/commands/_common/error';
 import * as installSecrets from '../../../../../../src/cli/commands/_common/install/secrets';
+import * as contextAugmentation from '../../../../../../src/cli/commands/integrate/_common/context-augmentation';
 import { integrateClaude } from '../../../../../../src/cli/commands/integrate/claude';
 import * as health from '../../../../../../src/cli/commands/integrate/claude/health';
 import { HealthCheckResult } from '../../../../../../src/cli/commands/integrate/claude/health';
@@ -70,6 +71,9 @@ describe('integrateCommand', () => {
   let hasSqaaEntitlementSpy: Mock<
     Extract<(typeof SonarQubeClient.prototype)['hasSqaaEntitlement'], (...args: any[]) => any>
   >;
+  let hasCagEntitlementSpy: Mock<
+    Extract<(typeof SonarQubeClient.prototype)['hasCagEntitlement'], (...args: any[]) => any>
+  >;
   let isEnvBasedAuthSpy: Mock<
     Extract<(typeof authResolver)['isEnvBasedAuth'], (...args: any[]) => any>
   >;
@@ -94,15 +98,24 @@ describe('integrateCommand', () => {
   let setupMcpServerForAgentSpy: Mock<
     Extract<(typeof mcpHelper)['setupMcpServerForAgent'], (...args: any[]) => any>
   >;
+  let setupContextAugmentationSpy: Mock<
+    Extract<(typeof contextAugmentation)['setupContextAugmentation'], (...args: any[]) => any>
+  >;
 
   beforeEach(() => {
     setMockUi(true);
 
     hasSqaaEntitlementSpy = spyOn(SonarQubeClient.prototype, 'hasSqaaEntitlement');
     hasSqaaEntitlementSpy.mockResolvedValue(false);
+    hasCagEntitlementSpy = spyOn(SonarQubeClient.prototype, 'hasCagEntitlement');
+    hasCagEntitlementSpy.mockResolvedValue('enabled');
     setupMcpServerForAgentSpy = spyOn(mcpHelper, 'setupMcpServerForAgent').mockResolvedValue(
       undefined,
     );
+    setupContextAugmentationSpy = spyOn(
+      contextAugmentation,
+      'setupContextAugmentation',
+    ).mockResolvedValue(undefined);
 
     loadStateSpy = spyOn(stateRepository, 'loadState').mockReturnValue(getDefaultState('test'));
     saveStateSpy = spyOn(stateRepository, 'saveState').mockImplementation(() => {});
@@ -133,6 +146,7 @@ describe('integrateCommand', () => {
     loadStateSpy.mockRestore();
     saveStateSpy.mockRestore();
     hasSqaaEntitlementSpy.mockRestore();
+    hasCagEntitlementSpy.mockRestore();
     isEnvBasedAuthSpy.mockRestore();
     runHealthChecksSpy.mockRestore();
     discoverProjectSpy.mockRestore();
@@ -143,6 +157,7 @@ describe('integrateCommand', () => {
     updateStateAfterConfigurationSpy.mockRestore();
     resolveSecretsBinarySpy.mockRestore();
     setupMcpServerForAgentSpy.mockRestore();
+    setupContextAugmentationSpy.mockRestore();
   });
 
   it('shows intro message', async () => {

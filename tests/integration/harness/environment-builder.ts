@@ -36,13 +36,17 @@ import {
   type BinarySpec,
   buildLocalBinaryName,
 } from '../../../src/cli/commands/_common/install/binary';
+import { buildLocalCagBinaryName } from '../../../src/cli/commands/_common/install/context-augmentation';
 import { SCA_SCANNER_SPEC } from '../../../src/cli/commands/_common/install/sca-scanner';
 import { SECRETS_SPEC } from '../../../src/cli/commands/_common/install/secrets';
+import { CONTEXT_AUGMENTATION_BINARY_NAME } from '../../../src/lib/install-types.js';
 import { generateKeychainAccount } from '../../../src/lib/keychain';
 import { detectPlatform } from '../../../src/lib/platform-detector.js';
+import { SONAR_CONTEXT_AUGMENTATION_VERSION } from '../../../src/lib/signatures.js';
 import { buildDownloadUrl } from '../../../src/lib/sonarsource-releases.js';
 import type { CliState, InstalledTool } from '../../../src/lib/state.js';
 import { getDefaultState } from '../../../src/lib/state.js';
+import { IS_WINDOWS } from './platform';
 
 function resolveBinaryFixturePath(fixture: BinarySpec): string {
   const platform = detectPlatform();
@@ -64,6 +68,12 @@ export class EnvironmentBuilder {
   private activeConnectionOrgKey?: string;
   private activeConnectionTokenName?: string;
   private _installSecretsBinary = false;
+  private _installCagBinary = false;
+  private _cagInitExitCode = 0;
+  private _cagSkillExitCode = 0;
+  private _cagSentinelPath?: string;
+  private _cagStdoutLine?: string;
+  private _cagStderrLine?: string;
   private _installScaScannerBinary = false;
   private _rawStateJson?: string;
   private readonly keychainTokens: Array<{ serverURL: string; token: string; org?: string }> = [];
@@ -128,6 +138,34 @@ export class EnvironmentBuilder {
   }
 
   /**
+   * Installs the pre-compiled CAG stub binary (built by
+   * `bun run pretest:integration`) into <cliHome>/bin so the `sonar context`
+   * passthrough and the integrate-flow CAG step can run without a real CAG
+   * binary. Uses a real native executable rather than a shell/CMD script so
+   * Windows can spawn it as a PE.
+   *
+   * Each invocation appends one JSON line (argv + selected env vars) to
+   * <cliHome>/cag-invocations.jsonl, which tests can read back to assert
+   * the wrapper invoked the binary as expected. Per-subcommand exit codes
+   * are passed to the stub via env vars; see `getExtraEnv()`.
+   */
+  withContextAugmentationBinaryInstalled(
+    options: {
+      initExitCode?: number;
+      skillExitCode?: number;
+      stdoutLine?: string;
+      stderrLine?: string;
+    } = {},
+  ): this {
+    this._installCagBinary = true;
+    this._cagInitExitCode = options.initExitCode ?? 0;
+    this._cagSkillExitCode = options.skillExitCode ?? 0;
+    this._cagStdoutLine = options.stdoutLine;
+    this._cagStderrLine = options.stderrLine;
+    return this;
+  }
+
+  /**
    * Ensures sca-scanner-cli is available inside the isolated test environment.
    * Copies the cached binary from tests/integration/resources/dependency-artifacts/
    * into <tempDir>/bin/ and records it in state.tools.installed.
@@ -135,6 +173,25 @@ export class EnvironmentBuilder {
   withScaScannerBinaryInstalled(): this {
     this._installScaScannerBinary = true;
     return this;
+  }
+
+  /**
+   * Returns env vars the harness should merge into every CLI invocation.
+   * Currently used to parameterize the CAG stub binary (sentinel path +
+   * per-subcommand exit codes). Populated after `writeTo()` runs because the
+   * sentinel path depends on the harness's cliHome.
+   */
+  getExtraEnv(): Record<string, string> {
+    if (!this._installCagBinary || !this._cagSentinelPath) {
+      return {};
+    }
+    return {
+      CAG_STUB_SENTINEL: this._cagSentinelPath,
+      CAG_STUB_INIT_EXIT: String(this._cagInitExitCode),
+      CAG_STUB_SKILL_EXIT: String(this._cagSkillExitCode),
+      ...(this._cagStdoutLine !== undefined && { CAG_STUB_STDOUT_LINE: this._cagStdoutLine }),
+      ...(this._cagStderrLine !== undefined && { CAG_STUB_STDERR_LINE: this._cagStderrLine }),
+    };
   }
 
   /**
@@ -196,6 +253,15 @@ export class EnvironmentBuilder {
         name: SECRETS_SPEC.name,
         version: SECRETS_SPEC.version,
         path: buildLocalBinaryName(SECRETS_SPEC, detectPlatform()),
+        installedAt: new Date().toISOString(),
+        installedByCliVersion: 'integration-test',
+      });
+    }
+    if (this._installCagBinary) {
+      installed.push({
+        name: CONTEXT_AUGMENTATION_BINARY_NAME,
+        version: SONAR_CONTEXT_AUGMENTATION_VERSION,
+        path: buildLocalCagBinaryName(detectPlatform()),
         installedAt: new Date().toISOString(),
         installedByCliVersion: 'integration-test',
       });
@@ -272,8 +338,46 @@ export class EnvironmentBuilder {
         buildLocalBinaryName(SCA_SCANNER_SPEC, detectPlatform()),
       );
     }
+
+    if (this._installCagBinary) {
+      this.copyCagStub(cliHome);
+      this._cagSentinelPath = join(cliHome, 'cag-invocations.jsonl');
+    }
+  }
+
+  /**
+   * Copies the pre-compiled CAG stub binary (built by
+   * `bun run pretest:integration`) into <cliHome>/bin under the CAG-versioned
+   * filename. A real native executable rather than a shell/CMD script so
+   * Windows can spawn it as a PE. Per-test parameters (sentinel path,
+   * subcommand exit codes) reach the stub via env vars — see `getExtraEnv()`.
+   */
+  private copyCagStub(cliHome: string): void {
+    const binDir = join(cliHome, 'bin');
+    mkdirSync(binDir, { recursive: true });
+
+    const versionedName = buildLocalCagBinaryName(detectPlatform());
+    const destPath = join(binDir, versionedName);
+    if (existsSync(destPath)) {
+      return;
+    }
+
+    const stubFilename = IS_WINDOWS ? 'cag-stub.exe' : 'cag-stub';
+    const source = join(import.meta.dir, '..', 'resources', stubFilename);
+    if (!existsSync(source)) {
+      throw new Error(
+        `CAG stub binary not found at: ${source}\n` +
+          `Run 'bun run pretest:integration' to compile it.`,
+      );
+    }
+    copyFileSync(source, destPath);
+    if (!IS_WINDOWS) {
+      chmodSync(destPath, EXECUTABLE_PERMS);
+    }
   }
 }
+
+const EXECUTABLE_PERMS = 0o755;
 
 function copyBinaryFixtureInto(cliHome: string, fixture: BinarySpec, versionedName: string): void {
   const binDir = join(cliHome, 'bin');
