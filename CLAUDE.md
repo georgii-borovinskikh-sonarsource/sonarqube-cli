@@ -40,6 +40,25 @@ By default, new commands should register a `authenticatedAction()`, only technic
 
 Declarative integration registry helpers live in `src/cli/commands/integrate/_common/registry/index.ts`. New integration descriptors should use that public entrypoint for resource factories, operations, and registry validation. Command handlers should keep command-specific validation, prompts, and target resolution thin, then delegate feature selection, generic install messages, resource/operation application, and state recording to `src/cli/commands/integrate/_common/installer.ts`.
 
+### Git hooks
+
+`sonar integrate git` installs git hooks that delegate to TypeScript handlers under `sonar hook <event>`. The shell script template lives in `src/cli/commands/integrate/git/tools/native/shell-fragments.ts`; the handlers live in `src/cli/commands/hook/`.
+
+Two pre-push checks are supported:
+
+- **Secrets scan** (`sonar hook git-pre-push`, default): scans files in pushed commits with the `sonar-secrets` binary. Always installed.
+- **Dependency-risks scan** (`sonar hook git-pre-push-deps --project <key>`): opt-in via `sonar integrate git --hook pre-push --with-dependency-risks <projectKey>`. The installer bakes the project key into the hook script. The handler:
+  1. Asks `sca-scanner-cli watch-patterns` (JSON output: `{"patterns":[…]}`) for the manifest globs to watch.
+  2. Lists files in pushed commits via the shared helpers in `src/cli/commands/hook/git-files.ts`.
+  3. Skips silently when no file matches any watched glob (small glob matcher in `src/cli/commands/hook/sca-watch-patterns.ts`; supports `*`, `**`, `?`, `{a,b}`, case-insensitive).
+  4. Runs the SCA scanner just like `sonar analyze dependency-risks`, applying the configured `--statuses`/`--severities` filter (defaults: `new` + `low,medium,high,blocker`).
+  5. Blocks the push (exit 1) only when at least one risk matches the filter — otherwise exits 0 silently.
+  6. Fails open (warn + exit 0) on any infra failure: missing auth, missing binary, scanner crash, server unreachable.
+
+`sonar analyze dependency-risks` supports `--statuses` and `--severities` independently. `buildRiskFilter(statuses, severities)` in `src/cli/commands/analyze/dependency-risk-helpers/risk-filter.ts` combines them with AND. The server-version + SCA-entitlement preflight lives in `dependency-risk-helpers/sca-availability.ts` and is reused by both the command and the hook.
+
+The `--with-dependency-risks` option is rejected with `--global` (no project context) and with `--hook pre-commit` (pre-push only).
+
 ### Context Augmentation
 
 `sonar context [action] [args...]` is a passthrough to the locally-installed `sonar-context-augmentation` binary (CAG). It forwards args verbatim, propagates the child exit code, and injects context through `SONAR_CONTEXT_ORGANIZATION`, `SONAR_CONTEXT_PROJECT`, `SONAR_CONTEXT_TOKEN`, and `SONAR_CONTEXT_URL` env vars. The passthrough resolves project context from the recorded CAG skill state for the current project rather than running full project auto-discovery. Implementation in `src/cli/commands/context/`. The binary is downloaded by `sonar integrate claude` / `sonar integrate copilot` / `sonar integrate codex` (skip with `--skip-context`); `sonar context` itself never auto-installs and emits a clear "not installed" error pointing the user back to integrate. `--global` integrations also skip CAG setup; install it by re-running `sonar integrate <agent>` from a project directory. After a CLI self-update, post-update refreshes CAG when it is already recorded in state: it first runs `sonar-context-augmentation tool stop --all` against the previously-installed binary (best-effort; skipped when no prior install is recorded or the recorded binary is missing on disk, failures debug-logged) so any running CAG tools are stopped before the binary is replaced, then installs the pinned CAG binary and reruns `sonar-context-augmentation tool install-skill <agent> --invocation-prefix "sonar context" --sca-enabled=<recorded>` for every registered non-global project skill, threading the previously-recorded `scaEnabled` value from state (no server re-check). It skips deleted project roots or unsupported agent entries, and does not rerun `tool integrate` (which requires auth/entitlement context that post-update lacks).
