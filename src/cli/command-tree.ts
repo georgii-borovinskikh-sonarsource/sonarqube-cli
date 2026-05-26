@@ -330,11 +330,30 @@ const dependencyRisksFormatOption = new Option('--format <format>', 'Output form
   .choices(DEPENDENCY_RISKS_FORMATS)
   .default('table');
 
+const dependencyRisksStatusFilterOption = new Option(
+  '--statuses <statuses>',
+  'Filter issues by status\n' +
+    '\n' +
+    '  Raw:       new | open | confirm | accept | safe | fixed\n' +
+    '  Presets:   active | to_fix | all\n' +
+    '    active:  new, open, confirm\n' +
+    '    to_fix:  new, open, confirm, accept\n' +
+    '    all:     new, open, confirm, accept, safe, fixed\n' +
+    '\n' +
+    'Presets and raw statuses can be combined; the resulting set is the union.\n' +
+    '\n' +
+    'Examples:\n' +
+    '    --statuses active\n' +
+    '    --statuses new,confirm\n' +
+    '    --statuses active,safe\n',
+).default('active');
+
 analyze
-  .command('dependency-risks', { hidden: true })
+  .command('dependency-risks')
   .description('Analyze project dependencies for security and license risks')
   .requiredOption('-p, --project <project>', 'Project key')
   .addOption(dependencyRisksFormatOption)
+  .addOption(dependencyRisksStatusFilterOption)
   .authenticatedAction((auth, options: AnalyzeDependencyRisksOptions) =>
     analyzeDependencyRisks(options, auth),
   );
