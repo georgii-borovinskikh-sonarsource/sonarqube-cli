@@ -5,7 +5,7 @@
   "description": "SonarQube CLI",
   "bin": {
     "sonar": "./dist/index.js"
-  },
+   },
   "scripts": {
     "build:binary": "bun build src/index.ts --compile --outfile dist/sonarqube-cli",
     "postbuild:binary": "bun build-scripts/codesign-local.ts",
