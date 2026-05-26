@@ -166,7 +166,7 @@ async function assertServerSupportsLocalSca(
       'Software Composition Analysis is not available for the current server connection.',
       {
         remediationHint:
-          'Software Composition Analysis requires SonarQube Server Enterprise Edition or SonarQube Cloud Team plan or higher, and must be enabled by an administrator. Learn more: https://docs.sonarsource.com/sonarqube-server/latdontest/advanced-security/sca-overview/',
+          'Software Composition Analysis must be enabled by an administrator and requires an eligible SonarQube plan. Learn more: https://www.sonarsource.com/products/sonarqube/advanced-security/',
       },
     );
   }
