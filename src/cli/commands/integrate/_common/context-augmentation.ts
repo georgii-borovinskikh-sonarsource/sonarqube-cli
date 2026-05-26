@@ -41,7 +41,7 @@ import {
 import { buildContextAugmentationEnv } from '../../_common/context-augmentation-env';
 import { installContextAugmentationBinary } from '../../_common/install/context-augmentation';
 
-export type ContextAugmentationAgent = 'claude-code' | 'copilot';
+export type ContextAugmentationAgent = 'claude-code' | 'copilot' | 'codex';
 
 export interface SetupContextAugmentationParams {
   auth: ResolvedAuth;
@@ -56,6 +56,7 @@ export interface SetupContextAugmentationParams {
 const STATE_AGENT_ID: Record<ContextAugmentationAgent, string> = {
   'claude-code': 'claude-code',
   copilot: 'copilot-cli',
+  codex: 'codex',
 };
 
 // Inverse lookup for state entries, which store agent ids rather than CAG subcommand arguments.
