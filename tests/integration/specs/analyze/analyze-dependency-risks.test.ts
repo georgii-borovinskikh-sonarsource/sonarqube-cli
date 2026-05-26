@@ -187,7 +187,7 @@ describe('analyze dependency-risks', () => {
     );
   });
 
-  it('exits with code 1 when the on-premise server version is below 26.4', async () => {
+  it('exits with code 1 when the on-premise server version is below 2026.4', async () => {
     const server = await harness
       .newFakeServer()
       .withAuthToken(VALID_TOKEN)
@@ -200,7 +200,7 @@ describe('analyze dependency-risks', () => {
 
     expect(result.exitCode).toBe(1);
     expect(result.stdout + result.stderr).toContain(
-      'Running Software Composition Analysis from this CLI requires SonarQube Server 26.4 or later (server is 26.3)',
+      'Running Software Composition Analysis from this CLI requires SonarQube Server 2026.4 or later (server is 26.3)',
     );
     // Version check runs before the SCA feature-enabled probe.
     expect(server.getRecordedRequests().some((r) => r.path.endsWith('/sca/feature-enabled'))).toBe(
@@ -208,7 +208,7 @@ describe('analyze dependency-risks', () => {
     );
   });
 
-  it('proceeds past the version check when the on-premise server version is 26.4 or newer', async () => {
+  it('proceeds past the version check when the on-premise server version is 2026.4 or newer', async () => {
     const server = await harness
       .newFakeServer()
       .withAuthToken(VALID_TOKEN)
@@ -239,7 +239,7 @@ describe('analyze dependency-risks', () => {
 
     expect(result.exitCode).toBe(1);
     expect(result.stdout + result.stderr).toContain(
-      'Could not determine SonarQube Server version. Running Software Composition Analysis from this CLI requires SonarQube Server 26.4 or later.',
+      'Could not determine SonarQube Server version. Running Software Composition Analysis from this CLI requires SonarQube Server 2026.4 or later.',
     );
   });
 

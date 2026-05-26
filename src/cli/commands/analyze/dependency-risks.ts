@@ -48,7 +48,7 @@ const EXIT_CODE_OK = 0;
 const EXIT_CODE_ERRORS_ONLY = 1;
 const EXIT_CODE_UNRESOLVED_RISKS = 51;
 
-const MIN_SCA_SQS_VERSION = '26.4';
+const MIN_SCA_SQS_VERSION = '2026.4';
 
 export interface AnalyzeDependencyRisksOptions {
   project: string;
@@ -166,7 +166,7 @@ async function assertServerSupportsLocalSca(
       'Software Composition Analysis is not available for the current server connection.',
       {
         remediationHint:
-          'Use a connection where SCA is enabled, or verify your server edition, plan, and organization entitlements.',
+          'Software Composition Analysis requires SonarQube Server Enterprise Edition or SonarQube Cloud Team plan or higher, and must be enabled by an administrator. Learn more: https://docs.sonarsource.com/sonarqube-server/latdontest/advanced-security/sca-overview/',
       },
     );
   }
