@@ -200,7 +200,7 @@ describe('analyze dependency-risks', () => {
 
     expect(result.exitCode).toBe(1);
     expect(result.stdout + result.stderr).toContain(
-      'Software Composition Analysis requires SonarQube Server 26.4 or later (server is 26.3)',
+      'Running Software Composition Analysis from this CLI requires SonarQube Server 26.4 or later (server is 26.3)',
     );
     // Version check runs before the SCA feature-enabled probe.
     expect(server.getRecordedRequests().some((r) => r.path.endsWith('/sca/feature-enabled'))).toBe(
@@ -239,7 +239,7 @@ describe('analyze dependency-risks', () => {
 
     expect(result.exitCode).toBe(1);
     expect(result.stdout + result.stderr).toContain(
-      'Could not determine SonarQube Server version. Software Composition Analysis requires SonarQube Server 26.4 or later.',
+      'Could not determine SonarQube Server version. Running Software Composition Analysis from this CLI requires SonarQube Server 26.4 or later.',
     );
   });
 

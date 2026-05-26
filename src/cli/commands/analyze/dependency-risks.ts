@@ -66,17 +66,7 @@ export async function analyzeDependencyRisks(
   }
 
   const client = new SonarQubeClient(auth.serverUrl, auth.token);
-  await assertServerSupportsSca(auth);
-  const enabled = await client.checkScaEnabled(auth.connectionType, auth.orgKey);
-  if (!enabled) {
-    throw new CommandFailedError(
-      'Software Composition Analysis is not available for the current server connection.',
-      {
-        remediationHint:
-          'Use a connection where SCA is enabled, or verify your server edition, plan, and organization entitlements.',
-      },
-    );
-  }
+  await assertServerSupportsLocalSca(auth, client);
 
   const settings = await client.getProjectSettings(options.project);
   const properties = parseAnalysisProperties(settings);
@@ -151,19 +141,33 @@ export function countUnresolvedIssues(vm: DependencyRisksViewModel): number {
   return count;
 }
 
-async function assertServerSupportsSca(auth: ResolvedAuth): Promise<void> {
-  if (auth.connectionType === 'cloud') return;
-  let serverVersion: string;
-  try {
-    serverVersion = await fetchServerVersion(auth.serverUrl);
-  } catch {
-    throw new CommandFailedError(
-      `Could not determine SonarQube Server version. Software Composition Analysis requires SonarQube Server ${MIN_SCA_SQS_VERSION} or later.`,
-    );
+async function assertServerSupportsLocalSca(
+  auth: ResolvedAuth,
+  client: SonarQubeClient,
+): Promise<void> {
+  if (auth.connectionType !== 'cloud') {
+    let serverVersion: string;
+    try {
+      serverVersion = await fetchServerVersion(auth.serverUrl);
+    } catch {
+      throw new CommandFailedError(
+        `Could not determine SonarQube Server version. Running Software Composition Analysis from this CLI requires SonarQube Server ${MIN_SCA_SQS_VERSION} or later.`,
+      );
+    }
+    if (!isAtLeast(serverVersion, MIN_SCA_SQS_VERSION)) {
+      throw new CommandFailedError(
+        `Running Software Composition Analysis from this CLI requires SonarQube Server ${MIN_SCA_SQS_VERSION} or later (server is ${serverVersion}).`,
+      );
+    }
   }
-  if (!isAtLeast(serverVersion, MIN_SCA_SQS_VERSION)) {
+  const enabled = await client.checkScaEnabled(auth.connectionType, auth.orgKey);
+  if (!enabled) {
     throw new CommandFailedError(
-      `Software Composition Analysis requires SonarQube Server ${MIN_SCA_SQS_VERSION} or later (server is ${serverVersion}).`,
+      'Software Composition Analysis is not available for the current server connection.',
+      {
+        remediationHint:
+          'Use a connection where SCA is enabled, or verify your server edition, plan, and organization entitlements.',
+      },
     );
   }
 }
