@@ -10,6 +10,7 @@
   "scripts": {
     "build:binary": "bun build src/index.ts --compile --outfile dist/sonarqube-cli",
     "postbuild:binary": "bun build-scripts/codesign-local.ts",
+    "install:local": "bun build-scripts/install-local.ts",
     "dev": "bun run src/index.ts",
     "test:unit": "SONARQUBE_CLI_DISABLE_SENTRY=1 bun test --parallel ./tests/unit/",
     "pretest:integration": "bun build:binary && bun build-scripts/setup-integration-resources.ts",
