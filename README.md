@@ -4,7 +4,8 @@
 
 The SonarQube CLI integrates enterprise-grade static analysis into your development workflow:
 
-- **🔒 Secret Detection** — Scan code for hardcoded credentials and prevent secrets from being sent to LLM providers
+- **🔒 Secret Detection** — Scan code for ha
+- rdcoded credentials and prevent secrets from being sent to LLM providers
 - **⚡ Fast Feedback Loop** — Get server-side issue detection on your local changes without waiting for CI/CD
 - **🤖 AI-Assisted Fixes** — Generate remediation suggestions for security vulnerabilities (SonarQube Cloud)
 - **🔗 Agent Integration** — Seamless hooks for Claude Code, GitHub Copilot, and other AI coding tools
