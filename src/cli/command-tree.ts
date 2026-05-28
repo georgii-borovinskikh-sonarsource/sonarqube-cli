@@ -58,6 +58,7 @@ import { codexPromptSubmit } from './commands/hook/codex-prompt-submit';
 import { copilotPreToolUse } from './commands/hook/copilot-pre-tool-use';
 import { gitPreCommit } from './commands/hook/git-pre-commit';
 import { gitPrePush } from './commands/hook/git-pre-push';
+import { gitPrePushDeps, type GitPrePushDepsOptions } from './commands/hook/git-pre-push-deps';
 import type { IntegrateAgentOptions } from './commands/integrate/_common/types';
 import { integrateClaude } from './commands/integrate/claude';
 import { integrateCodex } from './commands/integrate/codex';
@@ -185,6 +186,10 @@ integrateCommand
   .option(
     '--global',
     'Install hook globally for all repositories (sets git config --global core.hooksPath)',
+  )
+  .option(
+    '--with-dependency-risks <project>',
+    'Also install a pre-push dependency-risks scan for the given project key (requires --hook pre-push)',
   )
   .authenticatedAction((_auth, options: IntegrateGitOptions) => integrateGit(options));
 
@@ -342,6 +347,7 @@ const dependencyRisksStatusFilterOption = new Option(
     '    all:     new, open, confirm, accept, safe, fixed\n' +
     '\n' +
     'Presets and raw statuses can be combined; the resulting set is the union.\n' +
+    'Combined with --severities using AND.\n' +
     '\n' +
     'Examples:\n' +
     '    --statuses active\n' +
@@ -349,12 +355,30 @@ const dependencyRisksStatusFilterOption = new Option(
     '    --statuses active,safe\n',
 ).default('active');
 
+const dependencyRisksSeverityFilterOption = new Option(
+  '--severities <severities>',
+  'Filter issues by severity\n' +
+    '\n' +
+    '  Raw:       blocker | high | medium | low | info\n' +
+    '  Presets:   all\n' +
+    '    all:     blocker, high, medium, low, info\n' +
+    '\n' +
+    'Raw severities can be combined; the resulting set is the union.\n' +
+    'Combined with --statuses using AND.\n' +
+    '\n' +
+    'Examples:\n' +
+    '    --severities high\n' +
+    '    --severities high,blocker\n' +
+    '    --severities low,medium,high,blocker\n',
+).default('all');
+
 analyze
   .command('dependency-risks')
   .description('Analyze project dependencies for security and license risks')
   .requiredOption('-p, --project <project>', 'Project key')
   .addOption(dependencyRisksFormatOption)
   .addOption(dependencyRisksStatusFilterOption)
+  .addOption(dependencyRisksSeverityFilterOption)
   .authenticatedAction((auth, options: AnalyzeDependencyRisksOptions) =>
     analyzeDependencyRisks(options, auth),
   );
@@ -457,6 +481,14 @@ hookCommand
   .command('git-pre-push')
   .description('git pre-push handler: scan files in new commits for secrets')
   .anonymousAction(() => gitPrePush());
+
+hookCommand
+  .command('git-pre-push-deps')
+  .description('git pre-push handler: scan changed dependency manifests for risks')
+  .requiredOption('-p, --project <project>', 'Project key')
+  .option('--statuses <statuses>', 'Risk statuses to block on', 'new')
+  .option('--severities <severities>', 'Risk severities to block on', 'low,medium,high,blocker')
+  .anonymousAction((options: GitPrePushDepsOptions) => gitPrePushDeps(options));
 
 // Hidden flush command — only registered when running as a telemetry worker.
 if (process.env[TELEMETRY_FLUSH_MODE_ENV]) {

@@ -24,15 +24,15 @@ import { join } from 'node:path';
 import { type ResolvedAuth } from '../../../lib/auth-resolver';
 import { CLI_DIR } from '../../../lib/config-constants';
 import logger, { getLogLevelConfig } from '../../../lib/logger';
-import { fetchServerVersion, isAtLeast } from '../../../lib/server-info';
 import { SonarQubeClient } from '../../../sonarqube/client';
 import { error, print, warn } from '../../../ui';
-import { CommandFailedError, InvalidOptionError } from '../_common/error.js';
+import { InvalidOptionError } from '../_common/error.js';
 import { DefaultScaScannerInstaller } from '../_common/install/sca-scanner.ts';
 import { parseAnalysisProperties } from './dependency-risk-helpers/analysis-properties.ts';
 import { DefaultScaScannerSpawner } from './dependency-risk-helpers/default-sca-scanner-spawner.ts';
 import { formatDependencyRisksJson } from './dependency-risk-helpers/format-dependency-risks-json.ts';
 import { buildRiskFilter } from './dependency-risk-helpers/risk-filter.ts';
+import { assertServerSupportsLocalSca } from './dependency-risk-helpers/sca-availability.ts';
 import {
   type ScaScannerInvocation,
   ScaScannerRunner,
@@ -44,25 +44,27 @@ import { buildDependencyRisksViewModel } from './dependency-risk-helpers/view-mo
 
 export const VALID_FORMATS = ['json', 'table'];
 
+export const EXIT_CODE_UNRESOLVED_RISKS = 51;
+
 const EXIT_CODE_OK = 0;
 const EXIT_CODE_ERRORS_ONLY = 1;
-const EXIT_CODE_UNRESOLVED_RISKS = 51;
-
-const MIN_SCA_SQS_VERSION = '2026.4';
 
 export interface AnalyzeDependencyRisksOptions {
   project: string;
   format: string;
   statuses: string;
+  severities: string;
 }
 
 export async function analyzeDependencyRisks(
   options: AnalyzeDependencyRisksOptions,
   auth: ResolvedAuth,
 ): Promise<void> {
-  const filter = buildRiskFilter(options.statuses);
+  const filter = buildRiskFilter(options.statuses, options.severities);
   if (!filter) {
-    throw new InvalidOptionError(`Invalid --statuses value: '${options.statuses}'`);
+    throw new InvalidOptionError(
+      `Invalid --statuses ('${options.statuses}') or --severities ('${options.severities}') value`,
+    );
   }
 
   const client = new SonarQubeClient(auth.serverUrl, auth.token);
@@ -139,35 +141,4 @@ export function countUnresolvedIssues(vm: DependencyRisksViewModel): number {
     }
   }
   return count;
-}
-
-async function assertServerSupportsLocalSca(
-  auth: ResolvedAuth,
-  client: SonarQubeClient,
-): Promise<void> {
-  if (auth.connectionType !== 'cloud') {
-    let serverVersion: string;
-    try {
-      serverVersion = await fetchServerVersion(auth.serverUrl);
-    } catch {
-      throw new CommandFailedError(
-        `Could not determine SonarQube Server version. Running Software Composition Analysis from this CLI requires SonarQube Server ${MIN_SCA_SQS_VERSION} or later.`,
-      );
-    }
-    if (!isAtLeast(serverVersion, MIN_SCA_SQS_VERSION)) {
-      throw new CommandFailedError(
-        `Running Software Composition Analysis from this CLI requires SonarQube Server ${MIN_SCA_SQS_VERSION} or later (server is ${serverVersion}).`,
-      );
-    }
-  }
-  const enabled = await client.checkScaEnabled(auth.connectionType, auth.orgKey);
-  if (!enabled) {
-    throw new CommandFailedError(
-      'Software Composition Analysis is not available for the current server connection.',
-      {
-        remediationHint:
-          'Software Composition Analysis must be enabled by an administrator and requires an eligible SonarQube plan. Learn more: https://www.sonarsource.com/products/sonarqube/advanced-security/',
-      },
-    );
-  }
 }

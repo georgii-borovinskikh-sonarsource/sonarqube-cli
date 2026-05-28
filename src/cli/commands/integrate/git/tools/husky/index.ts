@@ -58,7 +58,14 @@ function createHuskyFeature(hook: GitHookType): FeatureDeclaration<IntegrateGitO
         executable: true,
         startMarker: `# ${HOOK_MARKER}`,
         endMarker: `# sonar:end husky-${hook}`,
-        content: getHuskySnippetContent(hook).trimEnd(),
+        content: (context) => {
+          const depsProject = context.attrs?.dependencyRisksProject;
+          const options =
+            typeof depsProject === 'string' && depsProject.length > 0
+              ? { dependencyRisksProject: depsProject }
+              : {};
+          return getHuskySnippetContent(hook, options).trimEnd();
+        },
       }),
     ],
   };

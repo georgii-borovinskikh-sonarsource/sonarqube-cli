@@ -34,7 +34,7 @@ import { installIntegration } from '../_common/registry';
 import type { GitHookType, IntegrateGitOptions } from './options';
 import {
   hasSonarHookInPreCommitConfig,
-  HOOK_MARKER,
+  hasSonarHookMarker,
   HUSKY_INTEGRATION_ID,
   NATIVE_GIT_INTEGRATION_ID,
   PRE_COMMIT_CONFIG_FILE,
@@ -58,7 +58,7 @@ export function isGitHookType(s: string): s is GitHookType {
 // ---------------------------------------------------------------------------
 
 export function hasMarker(filePath: string): boolean {
-  return existsSync(filePath) && readFileSync(filePath, 'utf-8').includes(HOOK_MARKER);
+  return existsSync(filePath) && hasSonarHookMarker(readFileSync(filePath, 'utf-8'));
 }
 
 interface HookInstallation {
@@ -98,6 +98,19 @@ export async function detectSonarHookInstallation(root: string): Promise<HookIns
 export function validateHookOption(hook: string | undefined): void {
   if (hook !== undefined && !isGitHookType(hook)) {
     throw new InvalidOptionError('--hook must be pre-commit or pre-push');
+  }
+}
+
+/** `--with-dependency-risks` is only meaningful for the pre-push hook. */
+export function validateDependencyRisksOption(options: IntegrateGitOptions): void {
+  if (options.withDependencyRisks === undefined) return;
+  if (options.withDependencyRisks.trim().length === 0) {
+    throw new InvalidOptionError('--with-dependency-risks requires a non-empty project key');
+  }
+  if (options.hook !== undefined && options.hook !== 'pre-push') {
+    throw new InvalidOptionError(
+      '--with-dependency-risks can only be combined with --hook pre-push',
+    );
   }
 }
 
@@ -179,6 +192,12 @@ export async function showInstallationStatus(root: string): Promise<void> {
 
 async function integrateGitGlobal(options: IntegrateGitOptions): Promise<void> {
   validateHookOption(options.hook);
+  validateDependencyRisksOption(options);
+  if (options.withDependencyRisks !== undefined) {
+    throw new InvalidOptionError(
+      '--with-dependency-risks is not supported with --global; install per project instead',
+    );
+  }
 
   warn('Global hook installation');
   text('  Git prioritizes local repository settings over global ones.');
@@ -211,6 +230,7 @@ async function integrateGitGlobal(options: IntegrateGitOptions): Promise<void> {
 
 export async function integrateGit(options: IntegrateGitOptions): Promise<void> {
   validateHookOption(options.hook);
+  validateDependencyRisksOption(options);
 
   intro('SonarQube Git integration (secrets scanning)');
   blank();
@@ -255,15 +275,17 @@ async function installGitFeatures(
   scope: 'project' | 'global',
 ): Promise<void> {
   const integrationId = await resolveGitIntegrationId(targetRoot, scope);
+  const attrs: Record<string, string> = { hook: options.hook };
+  if (options.withDependencyRisks !== undefined && options.hook === 'pre-push') {
+    attrs.dependencyRisksProject = options.withDependencyRisks;
+  }
   await installIntegration({
     integrationId,
     options,
     targetRoot,
     scope,
     force: options.force,
-    attrs: {
-      hook: options.hook,
-    },
+    attrs,
   });
 }
 

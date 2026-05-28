@@ -100,8 +100,9 @@ describe('formatDependencyRisksTable — general smoke', () => {
     const out = formatDependencyRisksTable(
       mockDependencyRisksViewModel({ packages: [], packagesScanned: 0 }),
     );
-    expect(out).toContain('Filtering by: new, open, confirm, accept, safe, fixed');
-    expect(out.indexOf('Summary:')).toBeLessThan(out.indexOf('Filtering by:'));
+    expect(out).toContain('Filtering by statuses: new, open, confirm, accept, safe, fixed');
+    expect(out).toContain('severities: blocker, high, medium, low, info');
+    expect(out.indexOf('Summary:')).toBeLessThan(out.indexOf('Filtering by'));
   });
 
   it('renders the discarded statuses alongside the kept ones when the filter excludes some', () => {
@@ -113,10 +114,24 @@ describe('formatDependencyRisksTable — general smoke', () => {
         summary: buildSummaryVM([], 0, filter),
       }),
     );
-    const filterLine = lineWith(out, 'Filtering by:');
+    const filterLine = lineWith(out, 'Filtering by');
     expect(filterLine).toContain('new, open, confirm');
     expect(filterLine).toContain('discarded: accept, safe, fixed');
     expect(filterLine.indexOf('new, open, confirm')).toBeLessThan(filterLine.indexOf('discarded:'));
+  });
+
+  it('renders the discarded severities alongside the kept ones when the filter excludes some', () => {
+    const filter = buildRiskFilter('all', 'high,blocker')!.description;
+    const out = formatDependencyRisksTable(
+      mockDependencyRisksViewModel({
+        packages: [],
+        packagesScanned: 0,
+        summary: buildSummaryVM([], 0, filter),
+      }),
+    );
+    const filterLine = lineWith(out, 'Filtering by');
+    expect(filterLine).toContain('severities: blocker, high');
+    expect(filterLine).toContain('discarded: medium, low, info');
   });
 });
 

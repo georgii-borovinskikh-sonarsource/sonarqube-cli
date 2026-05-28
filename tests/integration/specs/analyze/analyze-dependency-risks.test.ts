@@ -168,7 +168,7 @@ describe('analyze dependency-risks', () => {
     const result = await harness.run('analyze dependency-risks --project demo --statuses bogus');
 
     expect(result.exitCode).not.toBe(0);
-    expect(result.stdout + result.stderr).toContain("Invalid --statuses value: 'bogus'");
+    expect(result.stdout + result.stderr).toContain("Invalid --statuses ('bogus')");
   });
 
   it('exits with code 1 when the SCA endpoint is absent (404)', async () => {

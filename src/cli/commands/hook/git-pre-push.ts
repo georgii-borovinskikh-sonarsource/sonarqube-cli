@@ -21,15 +21,13 @@
 // git pre-push callback handler — scans files in new commits for secrets before push.
 // Replaces the shell logic that was previously embedded in the git hook script.
 
-import { spawnProcess } from '../../../lib/process';
 import { CommandFailedError } from '../_common/error';
 import { EXIT_CODE_SECRETS_FOUND, runSecretsBinary } from '../analyze/secrets';
+import { getEmptyTree, getFilesForRef, GIT_NULL_OID } from './git-files';
 import type { HookDependencies } from './hook-dependencies';
 import { handleScanError, resolveAuthAndSecrets } from './hook-dependencies';
 import type { PushRef } from './stdin';
 import { readGitPushRefs } from './stdin';
-
-const GIT_NULL_OID = '0000000000000000000000000000000000000000';
 
 export async function gitPrePush(): Promise<void> {
   const refs = await readGitPushRefs();
@@ -62,72 +60,5 @@ async function scanRef(ref: PushRef, emptyTree: string, deps: HookDependencies):
   } catch (err) {
     if (err instanceof CommandFailedError) throw err;
     handleScanError('Push', err as Error);
-  }
-}
-
-async function getEmptyTree(): Promise<string> {
-  try {
-    const result = await spawnProcess('git', ['mktree'], { stdin: 'pipe', stdinData: '' });
-    return result.stdout.trim() || GIT_NULL_OID;
-  } catch {
-    return GIT_NULL_OID;
-  }
-}
-
-async function getFilesForRef(ref: PushRef, emptyTree: string): Promise<string[]> {
-  try {
-    if (ref.remoteSha === GIT_NULL_OID) {
-      return await getFilesForNewBranch(ref.localSha, emptyTree);
-    }
-    const result = await spawnProcess('git', [
-      'diff',
-      '--name-only',
-      '--diff-filter=ACMR',
-      ref.remoteSha,
-      ref.localSha,
-    ]);
-    return result.stdout.trim().split('\n').filter(Boolean);
-  } catch {
-    return [];
-  }
-}
-
-async function getFilesForNewBranch(localSha: string, emptyTree: string): Promise<string[]> {
-  try {
-    const commitsResult = await spawnProcess('git', ['rev-list', localSha, '--not', '--remotes']);
-    const commits = commitsResult.stdout.trim().split('\n').filter(Boolean);
-
-    if (commits.length > 0) {
-      const fileSet = new Set<string>();
-      for (const commit of commits) {
-        const result = await spawnProcess('git', [
-          'diff-tree',
-          '--root',
-          '--no-commit-id',
-          '-r',
-          '--name-only',
-          '--diff-filter=ACMR',
-          commit,
-        ]);
-        result.stdout
-          .trim()
-          .split('\n')
-          .filter(Boolean)
-          .forEach((f) => fileSet.add(f));
-      }
-      return Array.from(fileSet);
-    }
-
-    // No other remotes — diff full branch against empty tree
-    const result = await spawnProcess('git', [
-      'diff',
-      '--name-only',
-      '--diff-filter=ACMR',
-      emptyTree,
-      localSha,
-    ]);
-    return result.stdout.trim().split('\n').filter(Boolean);
-  } catch {
-    return [];
   }
 }

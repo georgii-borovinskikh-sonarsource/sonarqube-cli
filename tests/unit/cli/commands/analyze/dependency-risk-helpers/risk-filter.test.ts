@@ -110,3 +110,48 @@ describe('buildRiskFilter — vm', () => {
     expect(buildRiskFilter('bogus')).toBeNull();
   });
 });
+
+describe('buildRiskFilter — severities', () => {
+  it("defaults to 'all' severities when no severity argument is provided", () => {
+    expect(buildRiskFilter('all')?.description.effectiveSeverities).toEqual([
+      'BLOCKER',
+      'HIGH',
+      'MEDIUM',
+      'LOW',
+      'INFO',
+    ]);
+  });
+
+  it('raw severities are kept and ordered canonically', () => {
+    expect(buildRiskFilter('all', 'low,high')?.description.effectiveSeverities).toEqual([
+      'HIGH',
+      'LOW',
+    ]);
+  });
+
+  it("'all' preset expands to every severity", () => {
+    expect(buildRiskFilter('all', 'all')?.description.effectiveSeverities).toEqual([
+      'BLOCKER',
+      'HIGH',
+      'MEDIUM',
+      'LOW',
+      'INFO',
+    ]);
+  });
+
+  it('combines statuses and severities with AND', () => {
+    const filter = buildRiskFilter('new', 'high,blocker')!;
+    expect(filter.predicate({ status: 'NEW', severity: 'HIGH' })).toBe(true);
+    expect(filter.predicate({ status: 'NEW', severity: 'LOW' })).toBe(false);
+    expect(filter.predicate({ status: 'OPEN', severity: 'HIGH' })).toBe(false);
+    expect(filter.predicate({ status: 'NEW', severity: 'BLOCKER' })).toBe(true);
+  });
+
+  it('returns null for an unknown severity token', () => {
+    expect(buildRiskFilter('all', 'critical')).toBeNull();
+  });
+
+  it('returns null for an empty severity input', () => {
+    expect(buildRiskFilter('all', '')).toBeNull();
+  });
+});

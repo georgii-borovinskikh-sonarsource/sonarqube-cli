@@ -18,6 +18,7 @@
  * Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
+import type { Severity } from './sca-scanner.ts';
 import type { EffectiveStatus, RiskVM } from './view-model';
 
 export type RiskFilterPredicate = (risk: RiskVM) => boolean;
@@ -25,6 +26,8 @@ export type RiskFilterPredicate = (risk: RiskVM) => boolean;
 export interface RiskFilterDescription {
   effectiveStatuses: EffectiveStatus[];
   discardedStatuses: EffectiveStatus[];
+  effectiveSeverities: Severity[];
+  discardedSeverities: Severity[];
 }
 export interface RiskFilter {
   description: RiskFilterDescription;
@@ -49,7 +52,40 @@ const PRESET_EXPANSIONS: Record<StatusPreset, EffectiveStatus[]> = {
   all: [...EFFECTIVE_STATUSES],
 };
 
-export function buildRiskFilter(input: string): RiskFilter | null {
+const EFFECTIVE_SEVERITIES = [
+  'BLOCKER',
+  'HIGH',
+  'MEDIUM',
+  'LOW',
+  'INFO',
+] as const satisfies readonly Severity[];
+
+export const SEVERITY_PRESETS = ['all'] as const;
+export type SeverityPreset = (typeof SEVERITY_PRESETS)[number];
+
+const SEVERITY_PRESET_EXPANSIONS: Record<SeverityPreset, Severity[]> = {
+  all: [...EFFECTIVE_SEVERITIES],
+};
+
+export function buildRiskFilter(statuses: string, severities = 'all'): RiskFilter | null {
+  const statusSet = parseStatuses(statuses);
+  if (statusSet === null) return null;
+
+  const severitySet = parseSeverities(severities);
+  if (severitySet === null) return null;
+
+  return {
+    description: {
+      effectiveStatuses: EFFECTIVE_STATUSES.filter((s) => statusSet.has(s)),
+      discardedStatuses: EFFECTIVE_STATUSES.filter((s) => !statusSet.has(s)),
+      effectiveSeverities: EFFECTIVE_SEVERITIES.filter((s) => severitySet.has(s)),
+      discardedSeverities: EFFECTIVE_SEVERITIES.filter((s) => !severitySet.has(s)),
+    },
+    predicate: (risk) => statusSet.has(risk.status) && severitySet.has(risk.severity),
+  };
+}
+
+function parseStatuses(input: string): Set<EffectiveStatus> | null {
   const tokens = input.split(',').map((s) => s.trim().toLowerCase());
   const set = new Set<EffectiveStatus>();
 
@@ -65,12 +101,24 @@ export function buildRiskFilter(input: string): RiskFilter | null {
     }
   }
 
-  if (set.size === 0) return null;
-  return {
-    description: {
-      effectiveStatuses: EFFECTIVE_STATUSES.filter((s) => set.has(s)),
-      discardedStatuses: EFFECTIVE_STATUSES.filter((s) => !set.has(s)),
-    },
-    predicate: (risk) => set.has(risk.status),
-  };
+  return set.size === 0 ? null : set;
+}
+
+function parseSeverities(input: string): Set<Severity> | null {
+  const tokens = input.split(',').map((s) => s.trim().toLowerCase());
+  const set = new Set<Severity>();
+
+  for (const token of tokens) {
+    if ((SEVERITY_PRESETS as readonly string[]).includes(token)) {
+      for (const severity of SEVERITY_PRESET_EXPANSIONS[token as SeverityPreset]) {
+        set.add(severity);
+      }
+    } else {
+      const severity = EFFECTIVE_SEVERITIES.find((s) => s.toLowerCase() === token);
+      if (!severity) return null;
+      set.add(severity);
+    }
+  }
+
+  return set.size === 0 ? null : set;
 }
